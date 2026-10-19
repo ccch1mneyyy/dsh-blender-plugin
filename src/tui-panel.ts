@@ -19,6 +19,10 @@
  */
 
 import { inflateSync } from 'node:zlib'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 const DEFAULT_PORT = 9877
 /** 面板数据轮询间隔（契约 §2.3 / §7.3 的 1500 ms 口径）。 */
@@ -361,6 +365,93 @@ export function rgbaToAscii(
  * 落在图外返回 null —— v2.1 §8.1 要求"图外点击不发请求"；边界处按
  * [0,1] 夹取（终端点击坐标可能刚好落在右/下边缘）。
  */
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * v2.3：按 zoom/tx/ty 算出原图上的裁剪窗口（像素矩形）。
+ * tx/ty 是相对画面中心的归一化偏移；窗口会被夹在原图内，不会裁出黑边。
+ */
+export function computeCrop(
+  width: number,
+  height: number,
+  zoom: number,
+  tx: number,
+  ty: number,
+): { sx: number; sy: number; sw: number; sh: number } {
+  const w = Math.max(1, Math.floor(Number(width) || 1))
+  const h = Math.max(1, Math.floor(Number(height) || 1))
+  const z = clampNumber(Number(zoom) || 1, 1, 8)
+  const sw = Math.max(1, Math.round(w / z))
+  const sh = Math.max(1, Math.round(h / z))
+  const minCx = sw / 2 / w
+  const maxCx = 1 - sw / 2 / w
+  const minCy = sh / 2 / h
+  const maxCy = 1 - sh / 2 / h
+  const cx = clampNumber(0.5 + (Number(tx) || 0), minCx, maxCx)
+  const cy = clampNumber(0.5 + (Number(ty) || 0), minCy, maxCy)
+  const sx = clampNumber(Math.round(cx * w - sw / 2), 0, w - sw)
+  const sy = clampNumber(Math.round(cy * h - sh / 2), 0, h - sh)
+  return { sx: sx, sy: sy, sw: sw, sh: sh }
+}
+
+/** 从 RGBA 图里裁一块（拷贝；整图时直接返回原对象）。 */
+export function cropRgba(image: any, rect: any): any {
+  if (!image || !image.data) return null
+  const w = Math.max(1, Math.floor(Number(image.width) || 1))
+  const h = Math.max(1, Math.floor(Number(image.height) || 1))
+  const sx = clampNumber(Math.floor(Number(rect && rect.sx) || 0), 0, Math.max(0, w - 1))
+  const sy = clampNumber(Math.floor(Number(rect && rect.sy) || 0), 0, Math.max(0, h - 1))
+  const sw = clampNumber(Math.floor(Number(rect && rect.sw) || w), 1, w - sx)
+  const sh = clampNumber(Math.floor(Number(rect && rect.sh) || h), 1, h - sy)
+  if (sx === 0 && sy === 0 && sw === w && sh === h) return image
+  const out = new Uint8Array(sw * sh * 4)
+  for (let y = 0; y < sh; y += 1) {
+    const from = ((sy + y) * w + sx) * 4
+    const to = y * sw * 4
+    out.set(image.data.subarray(from, from + sw * 4), to)
+  }
+  return { width: sw, height: sh, data: out }
+}
+
+/** 把显示窗口内的 0..1 坐标映射回原图的 0..1 坐标（点选用）。 */
+export function mapDisplayToFull(point: any, crop: any, width: number, height: number): { x: number; y: number } {
+  const w = Math.max(1, Number(width) || 1)
+  const h = Math.max(1, Number(height) || 1)
+  const sx = Number(crop && crop.sx) || 0
+  const sy = Number(crop && crop.sy) || 0
+  const sw = Number(crop && crop.sw) || w
+  const sh = Number(crop && crop.sh) || h
+  return {
+    x: clampNumber((sx + clampNumber(Number(point && point.x) || 0, 0, 1) * sw) / w, 0, 1),
+    y: clampNumber((sy + clampNumber(Number(point && point.y) || 0, 0, 1) * sh) / h, 0, 1),
+  }
+}
+
+/**
+ * 以光标为锚点缩放：缩放前后光标下面的原图像素保持不动。
+ * 返回新的 zoom/tx/ty（tx/ty 是相对画面中心的归一化偏移）。
+ */
+export function zoomAtPoint(s: any): { zoom: number; tx: number; ty: number } {
+  const w = Math.max(1, Math.floor(Number(s && s.width) || 1))
+  const h = Math.max(1, Math.floor(Number(s && s.height) || 1))
+  const zoom = Number(s && s.zoom) || 1
+  const factor = Number(s && s.factor) || 1
+  const z0 = clampNumber(zoom, 1, 8)
+  const z1 = clampNumber(z0 * factor, 1, 8)
+  const crop = computeCrop(w, h, z0, s && s.tx, s && s.ty)
+  const px = clampNumber(Number(s && s.px) || 0, 0, 1)
+  const py = clampNumber(Number(s && s.py) || 0, 0, 1)
+  const fullX = (crop.sx + px * crop.sw) / w
+  const fullY = (crop.sy + py * crop.sh) / h
+  const sw = Math.max(1, Math.round(w / z1))
+  const sh = Math.max(1, Math.round(h / z1))
+  const sx = clampNumber(fullX * w - px * sw, 0, w - sw)
+  const sy = clampNumber(fullY * h - py * sh, 0, h - sh)
+  return { zoom: z1, tx: (sx + sw / 2) / w - 0.5, ty: (sy + sh / 2) / h - 0.5 }
+}
+
 export function mapClickToNormalized(
   localCol: number,
   localRow: number,
@@ -512,6 +603,65 @@ function formatAge(ms: number): string {
   return String(min) + 'm' + (rest ? ' ' + String(rest) + 's' : '')
 }
 
+/** 把文本写进系统剪贴板（Linux 依次试 wl-copy/xclip/xsel；mac pbcopy；win clip）。 */
+function copyToClipboard(text: string): boolean {
+  const value = String(text || '')
+  if (!value) return false
+  const candidates: Array<[string, string[]]> = process.platform === 'darwin'
+    ? [['pbcopy', []]]
+    : process.platform === 'win32'
+      ? [['clip', []]]
+      : [['wl-copy', []], ['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]]
+  for (const [command, args] of candidates) {
+    try {
+      const result = spawnSync(command, args, { input: value, timeout: 1500 })
+      if (result && result.status === 0) return true
+    } catch (error) {
+      // 没有这个工具就试下一个；全部失败由调用方 toast 兜底。
+    }
+  }
+  return false
+}
+
+/** 在文件管理器里定位 .blend（Linux 打开所在目录；mac 选中；win 选中）。 */
+function revealInFileManager(file: string): boolean {
+  const target = String(file || '')
+  if (!target) return false
+  try {
+    const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open'
+    // Windows 的 /select, 必须和路径拼成同一个参数（explorer /select,C:\x\a.blend）。
+    const args = process.platform === 'darwin' ? ['-R', target]
+      : process.platform === 'win32' ? ['/select,' + target] : [path.dirname(target)]
+    const result = spawnSync(command, args, { timeout: 1500 })
+    return !(result && result.error && result.error.code === 'ENOENT')
+  } catch (error) {
+    return false
+  }
+}
+
+/** 保存帧的默认目录：~/Pictures → ~/Downloads → 临时目录。 */
+function snapshotDirectory(): string {
+  const home = os.homedir()
+  for (const name of ['Pictures', 'Downloads']) {
+    const candidate = path.join(home, name)
+    try { if (fs.statSync(candidate).isDirectory()) return candidate } catch (error) { /* 下一个 */ }
+  }
+  return path.join(os.tmpdir(), 'dsh-blender-snapshots')
+}
+
+/** 文件名里只留安全字符（场景名可能带空格/斜杠）。 */
+function safeFilePart(value: string): string {
+  const cleaned = String(value || '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '')
+  return cleaned.slice(0, 40) || 'scene'
+}
+
+function fileStamp(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return String(d.getFullYear()) + pad(d.getMonth() + 1) + pad(d.getDate()) + '-'
+    + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds())
+}
+
 // ── 面板组件 ─────────────────────────────────────────────────────────────
 
 /**
@@ -546,6 +696,10 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const [jobs, setJobs] = React.useState([])
     const [selectedJobId, setSelectedJobId] = React.useState(null)
     const [jobLog, setJobLog] = React.useState(null)
+    // v2.3：最近一次点选命中的对象名（复制按钮/ y 键用）。
+    const [pickedName, setPickedName] = React.useState('')
+    // v2.3：缩放/平移（zoom + 归一化中心偏移；裁剪后交给 Image/ASCII 渲染）。
+    const [view, setView] = React.useState({ zoom: 1, tx: 0, ty: 0 })
 
     // effect 里要读最新值，但不该因为每次 setState 重订阅。
     const latestRef = React.useRef(latest)
@@ -568,6 +722,12 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     selectedJobRef.current = selectedJobId
     const jobsRef = React.useRef([])
     jobsRef.current = jobs
+    const pickedRef = React.useRef('')
+    pickedRef.current = pickedName
+    const viewRef = React.useRef(view)
+    viewRef.current = view
+    const saveBusyRef = React.useRef(false)
+    const dragStartRef = React.useRef<any>(null)
     const pickPolledAtRef = React.useRef(0)
     const captureTriedRef = React.useRef(false)
     const clickBusyRef = React.useRef(false)
@@ -614,6 +774,59 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       setSelectedJobId(previous => (previous === id ? null : id))
       setJobLog(null)
       jobsPolledAtRef.current = 0
+    }
+
+    // v2.3：缩放/平移（键盘；Web 端有滚轮/拖拽，TUI 用 vim 键位）。
+    const zoomBy = (factor: number) => {
+      setView(previous => {
+        const zoom = clampNumber(previous.zoom * factor, 1, 8)
+        return zoom === previous.zoom ? previous : { zoom: zoom, tx: previous.tx, ty: previous.ty }
+      })
+    }
+    const panBy = (dx: number, dy: number) => {
+      setView(previous => {
+        const step = 0.12 / Math.max(1, previous.zoom)
+        return { zoom: previous.zoom, tx: previous.tx + dx * step, ty: previous.ty + dy * step }
+      })
+    }
+    const resetView = () => setView({ zoom: 1, tx: 0, ty: 0 })
+
+    // v2.3：保存当前帧（取原 PNG 字节写盘；不重新编码）。
+    const saveFrame = async () => {
+      if (saveBusyRef.current) return
+      const seq = latestRef.current.seq
+      if (!(seq > 0)) { safeToast(host, '还没有视口帧，先按 r 刷新'); return }
+      saveBusyRef.current = true
+      try {
+        const png = await fetchRaw(port, '/host/view.png?seq=' + String(seq) + '&client=tui')
+        if (!png || png.status !== 200 || !png.body.length) {
+          safeToast(host, '保存失败：取图失败')
+          return
+        }
+        const dir = snapshotDirectory()
+        fs.mkdirSync(dir, { recursive: true })
+        const target = path.join(dir, 'blender-viewport-' + safeFilePart(latestRef.current.scene)
+          + '-frame' + String(seq) + '-' + fileStamp() + '.png')
+        fs.writeFileSync(target, png.body)
+        safeToast(host, '已保存 ' + target)
+      } catch (error) {
+        safeToast(host, '保存失败：' + errorLine(error))
+      } finally {
+        saveBusyRef.current = false
+      }
+    }
+
+    // v2.3：复制最近点选对象名 / 在文件管理器定位当前 .blend。
+    const copyPickedName = () => {
+      const name = pickedRef.current
+      if (!name) { safeToast(host, '还没有点选对象（先点画面选一个）'); return }
+      safeToast(host, copyToClipboard(name) ? '已复制对象名：' + name : '复制失败（没有剪贴板工具）：' + name)
+    }
+
+    const openDirectory = () => {
+      const file = latestRef.current.file
+      if (!file) { safeToast(host, '当前场景未保存（没有文件路径）'); return }
+      safeToast(host, revealInFileManager(file) ? '已打开所在目录' : '打开目录失败：' + file)
     }
 
     React.useEffect(() => {
@@ -920,6 +1133,15 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
           // r = 真正的"立即刷新"：重拍 + 重读，而不是只重读 store。
           try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
           void captureNow()
+        } else if (input === 's' || input === 'S') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          void saveFrame()
+        } else if (input === 'y' || input === 'Y') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          copyPickedName()
+        } else if (input === 'o' || input === 'O') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          openDirectory()
         } else if (input === 'f' || input === 'F') {
           try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
           toggleFollow()
@@ -928,6 +1150,34 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
           const list = jobsRef.current || []
           const target = list.find((job: any) => job && job.status === 'running') || list[0]
           if (target && target.id) toggleJob(String(target.id))
+        } else if (input === '+' || input === '=') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          zoomBy(1.5)
+          return true
+        } else if (input === '-' || input === '_') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          zoomBy(1 / 1.5)
+          return true
+        } else if (input === '0') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          resetView()
+          return true
+        } else if (input === 'h') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          panBy(-1, 0)
+          return true
+        } else if (input === 'l') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          panBy(1, 0)
+          return true
+        } else if (input === 'k') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          panBy(0, -1)
+          return true
+        } else if (input === 'j') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          panBy(0, 1)
+          return true
         } else if ((input === 'd' || input === 'D') && pickRef.current && pickRef.current.multi) {
           try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
           void finishMulti()
@@ -962,15 +1212,19 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     // 头部 2 + 两条分隔线 2 + 键位 1 + 画框上下边框 2 + 通知行 + 作业区。
     const maxImageRows = Math.max(1, height - 7 - bannerRows - jobsRows)
     const maxImageCols = Math.max(8, width - 4)
+    const crop = decoded && decoded.image
+      ? computeCrop(decoded.image.width, decoded.image.height, view.zoom, view.tx, view.ty)
+      : { sx: 0, sy: 0, sw: frameWidth || 16, sh: frameHeight || 9 }
     const layout = fitCells(
-      frameWidth || 16,
-      frameHeight || 9,
+      crop.sw,
+      crop.sh,
       Math.min(maxImageCols, MAX_IMAGE_COLUMNS),
       Math.min(maxImageRows, MAX_IMAGE_ROWS),
     )
     const source = React.useMemo(() => {
       if (!decoded || !decoded.image) return null
-      const image = decoded.image
+      const image = cropRgba(decoded.image, crop)
+      if (!image) return null
       // ui.Image's source is physical pixels and the renderer fits it into the
       // cell box by its natural aspect. Downscaling to layout.columns x rows
       // turned the frame into a 2x-wide image, letterboxed it vertically and
@@ -991,13 +1245,14 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         Math.max(1, Math.round(image.height * scale)),
       )
       return scaled ? { data: scaled.data, width: scaled.width, height: scaled.height } : null
-    }, [decoded])
+    }, [decoded, view.zoom, view.tx, view.ty])
     // 无 Kitty/Sixel 时 `<Image>` 的 children 就是用户能看到的全部画面。
-    // ASCII 直接取全分辨率帧按 cell 采样；点击仍按 cell 坐标映射。
-    const ascii = React.useMemo(
-      () => (decoded && decoded.image ? rgbaToAscii(decoded.image, layout.columns, layout.rows) : ''),
-      [decoded, layout.columns, layout.rows],
-    )
+    // ASCII 用同一个裁剪窗口按 cell 面积采样；缩放/平移后点击仍按 cell 映射。
+    const ascii = React.useMemo(() => {
+      if (!decoded || !decoded.image) return ''
+      const image = cropRgba(decoded.image, crop)
+      return image ? rgbaToAscii(image, layout.columns, layout.rows) : ''
+    }, [decoded, view.zoom, view.tx, view.ty, layout.columns, layout.rows])
     const frameIsCurrent = decoded !== null && decoded.seq === latest.seq && latest.seq > 0
 
     const onImageClick = (event: any) => {
@@ -1016,6 +1271,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         layout.rows,
       )
       if (!point) return // 图外点击不发请求（v2.1 §8.1 判据 19）
+      const fullPoint = mapDisplayToFull(point, crop, decoded.image.width, decoded.image.height)
       if (clickBusyRef.current) return
       clickBusyRef.current = true
       void (async () => {
@@ -1025,8 +1281,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
             const res = await postJson(port, '/host/pick/answer', {
               requestId: request.requestId,
               seq: latest.seq,
-              x: point.x,
-              y: point.y,
+              x: fullPoint.x,
+              y: fullPoint.y,
             })
             const data = res ? res.data : null
             if (!data) {
@@ -1037,6 +1293,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
               pickRef.current = null
               setPick(null)
               const name = data.object && data.object.name ? String(data.object.name) : ''
+              setPickedName(name)
+              pickedRef.current = name
               safeToast(host, name ? '已应答：' + name + '（已返回给模型）' : '已应答：点空处（已返回给模型）')
             } else if (data.ok === true && data.state === 'pending') {
               // §8.2 多选模式：加选后请求仍 pending；记下累积，按 d 收单。
@@ -1046,6 +1304,9 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
               const nextPick = { ...request, multi: true, objects: objects }
               pickRef.current = nextPick
               setPick(nextPick)
+              const joined = objects.map((item: any) => (typeof item === 'string' ? item : (item && item.name) || '')).filter(Boolean).join(' ')
+              setPickedName(joined)
+              pickedRef.current = joined
               safeToast(host, (data.added ? '已加选 ' + String(data.added) : '已加入多选')
                 + '（已选 ' + String(objects.length) + ' 件，按 d 完成）')
             } else {
@@ -1054,8 +1315,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
           } else {
             const res = await postJson(port, '/host/view/pick', {
               seq: latest.seq,
-              x: point.x,
-              y: point.y,
+              x: fullPoint.x,
+              y: fullPoint.y,
             })
             const data = res ? res.data : null
             if (!data) {
@@ -1064,8 +1325,10 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
             }
             if (data.ok === true) {
               const name = data.object && data.object.name ? String(data.object.name) : ''
+              setPickedName(name)
+              pickedRef.current = name
               // sendToChat 本阶段恒 false（需 panels.chat.attach 授权），只提示命中。
-              safeToast(host, name ? '命中 ' + name + '（sendToChat 暂不可用）' : '点空处（未命中物体）')
+              safeToast(host, name ? '命中 ' + name + '（y 复制）' : '点空处（未命中物体）')
             } else {
               safeToast(host, '点选失败：' + String(data.error || 'unknown'))
             }
@@ -1077,6 +1340,42 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         }
       })()
     }
+
+    // v2.3 鼠标优先：滚轮以光标为锚缩放、按住拖拽平移（不经过输入法）。
+    const onImageWheel = (event: any) => {
+      if (!decoded || !decoded.image) return
+      try { event.preventDefault?.() } catch (error) { /* 宿主已消费 */ }
+      const point = mapClickToNormalized(event.localCol, event.localRow, layout.columns, layout.rows)
+      if (!point) return
+      const factor = Number(event.deltaY) < 0 ? 1.25 : 1 / 1.25
+      setView(previous => zoomAtPoint({
+        width: decoded.image.width,
+        height: decoded.image.height,
+        zoom: previous.zoom,
+        tx: previous.tx,
+        ty: previous.ty,
+        px: point.x,
+        py: point.y,
+        factor: factor,
+      }))
+    }
+    const onImageDragStart = (event: any) => {
+      if (!decoded || !decoded.image) return
+      dragStartRef.current = { col: Number(event.localCol) || 0, row: Number(event.localRow) || 0, view: viewRef.current }
+    }
+    const onImageDragMove = (event: any) => {
+      const start = dragStartRef.current
+      if (!start || !decoded || !decoded.image) return
+      const dx = ((Number(event.localCol) || 0) - start.col) / Math.max(1, layout.columns)
+      const dy = ((Number(event.localRow) || 0) - start.row) / Math.max(1, layout.rows)
+      const crop = computeCrop(decoded.image.width, decoded.image.height, start.view.zoom, start.view.tx, start.view.ty)
+      setView({
+        zoom: start.view.zoom,
+        tx: start.view.tx - dx * crop.sw / decoded.image.width,
+        ty: start.view.ty - dy * crop.sh / decoded.image.height,
+      })
+    }
+    const onImageDragEnd = () => { dragStartRef.current = null }
 
     const header = React.createElement(
       ui.Box,
@@ -1092,13 +1391,28 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const ageMs = latest.capturedAt > 0 ? Math.max(0, Date.now() - latest.capturedAt * 1000) : null
     const ageText = ageMs === null ? '' : '  ·  ' + formatAge(ageMs) + ' ago'
     const renderText = renderBusy ? '  ·  rendering ' + formatAge(renderAgeMs || 0) : ageText
+    const zoomText = view.zoom > 1.001 ? '  ·  ' + view.zoom.toFixed(1) + '×' : ''
     const metaText = latest.seq > 0
-      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq) + renderText
+      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq) + renderText + zoomText
       : 'no frame captured'
+    // 鼠标优先：− / + / ⟲ 可点（不经过输入法），目录也可点。
+    const metaButton = (label: string, onClick: () => void) => React.createElement(
+      ui.Box,
+      { onClick, paddingX: 1, flexShrink: 0 },
+      React.createElement(ui.Text, { color: 'accent', wrap: 'truncate' }, label),
+    )
     const meta = React.createElement(
       ui.Box,
-      { paddingX: 1 },
+      { paddingX: 1, flexDirection: 'row', justifyContent: 'space-between' },
       React.createElement(ui.Text, { color: 'subtle', wrap: 'truncate' }, metaText),
+      React.createElement(
+        ui.Box,
+        { flexDirection: 'row', flexShrink: 0 },
+        metaButton('−', () => zoomBy(1 / 1.5)),
+        metaButton('+', () => zoomBy(1.5)),
+        metaButton('⟲', resetView),
+        latest.file ? metaButton('⌂ 目录', openDirectory) : null,
+      ),
     )
     const callout = pick
       ? React.createElement(
@@ -1172,7 +1486,9 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       },
       React.createElement(
         ui.Box,
-        { width: layout.columns, height: layout.rows, alignItems: 'center', justifyContent: 'center', onClick: onImageClick },
+        { width: layout.columns, height: layout.rows, alignItems: 'center', justifyContent: 'center',
+          onClick: onImageClick, onWheel: onImageWheel,
+          onDragStart: onImageDragStart, onDragMove: onImageDragMove, onDragEnd: onImageDragEnd },
         imageNode,
       ),
     )
@@ -1215,6 +1531,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         { flexDirection: 'row', flexShrink: 1, overflow: 'hidden' },
         controlButton('⟳ 刷新', () => { void captureNow() }, 'accent'),
         controlButton(follow ? '⏸ 跟随' : '▶ 跟随', toggleFollow, follow ? 'success' : 'subtle'),
+        controlButton('⤓ 保存', () => { void saveFrame() }, 'subtle'),
+        pickedName ? controlButton('⧉ 复制', copyPickedName, 'accent') : null,
         pick && pick.multi ? React.createElement(ui.Text, { color: 'warning', wrap: 'truncate' }, '  d 完成') : null,
         React.createElement(ui.Text, { color: 'subtle', wrap: 'truncate' }, '  esc 取消'),
       ),
@@ -1335,6 +1653,11 @@ export const __internals = {
   downscaleRgba: downscaleRgba,
   rgbaToAscii: rgbaToAscii,
   mapClickToNormalized: mapClickToNormalized,
+  computeCrop: computeCrop,
+  cropRgba: cropRgba,
+  mapDisplayToFull: mapDisplayToFull,
+  zoomAtPoint: zoomAtPoint,
+  safeFilePart: safeFilePart,
   autoCaptureDecision: autoCaptureDecision,
   followCaptureDue: followCaptureDue,
   revisionStaleDue: revisionStaleDue,

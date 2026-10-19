@@ -82,8 +82,20 @@ blender_viewport(op="doctor")
 | 鼠标改场景 | v2.3：`GET /host/scene-revision` 读到 revision 变化且 `idle_ms ≥ 800` 时也自动重拍（depsgraph handler，不依赖后端命令） |
 | 渲染中 | v2.3：头部状态 `● RENDERING`；自动重拍/跟随暂停，渲染结束（标记失效）后再抓 |
 | 作业区 | v2.3：`GET /host/jobs` 有 running 作业时，画面下方显示 `JOBS` 行；点击行（或按 `J`）展开最近 3 行日志，再点收起 |
+| `s` / 点「⤓ 保存」 | 把当前帧的原始 PNG 写到 `~/Pictures`（没有则 `~/Downloads` / 临时目录），toast 给出完整路径 |
+| `y` / 点「⧉ 复制」 | 复制最近一次点选命中的对象名（Linux 依次试 wl-copy/xclip/xsel；mac pbcopy；win clip） |
+| `o` / 点「⌂ 目录」 | 在文件管理器里定位当前 `.blend` 所在目录（未保存时提示） |
+| **滚轮** | 以光标为锚缩放（1–8×）；**不经过输入法**，首选 |
+| **按住拖拽画面** | 平移；自动夹在原图内，不会裁出黑边；**不经过输入法**，首选 |
+| 点「− / + / ⟲」 | 元信息右侧可点的缩小 / 放大 / 复位（无滚轮也能用） |
+| `+` / `-` / `0`（可选） | 键盘缩放/复位；输入法会先吃字母，IME 用户请用滚轮或按钮 |
+| `h` / `j` / `k` / `l`（可选） | 键盘平移；IME 用户请用拖拽 |
 | `Esc` | 有 pending 点选请求时取消它（`POST /host/pick/cancel`）并阻止面板关闭；没有请求时不拦截，按宿主语义退出面板 |
 | 切走面板 | 停止轮询；切回来继续（面板不可见时不发请求） |
+
+> **输入法（IME）注意**：终端会把单字母先交给输入法，组词确认后才会到应用；面板无法绕过。
+> 因此**鼠标操作是主路径**：滚轮缩放、拖拽平移、点击按钮（刷新/跟随/保存/复制/目录/缩放）；
+> 单字母快捷键只作为非 IME 用户的附加。
 
 面板挂载时如果后端还**没有任何帧**（`seq=0`），会自动抓一帧；失败不重试、也不额外弹错误
 （面板保持 `NO FRAME`，可按 `c` 手动再捕），不会反复重试轰炸 Blender。
@@ -113,10 +125,10 @@ blender_viewport(op="doctor")
 
 - **品牌头**：`BLENDER  VIEWPORT`（accent 色 + subtle 色）+ 右侧状态点
   `● LIVE / STALE / OFFLINE / IDLE`（success / warning / error / subtle）。
-- **元信息**：`Scene · 宽 × 高 · frame N · 3s ago`，一行 subtle；无帧时 `no frame captured`。
+- **元信息**：`Scene · 宽 × 高 · frame N · 3s ago`，右侧可点的 `− / + / ⟲`（无帧时 `no frame captured`）。
 - **分隔线**：`ui.Divider` 的 hairline，上下各一条，给画框留出呼吸感。
 - **画框**：`ui.Box` 圆角细边框 + 水平内边距；画面顶部锚定，下方留白，不铺满整块面板。
-- **键位栏**：左侧是可点击的「⟳ 刷新」「▶/⏸ 跟随」按钮 + `esc 取消`，右侧 `click 选物`；多选请求额外显示 `d 完成`。
+- **键位栏**：左侧是可点击的「⟳ 刷新」「▶/⏸ 跟随」「⤓ 保存」按钮（有命中对象时再加「⧉ 复制」）+ `esc 取消`，右侧 `click 选物`；多选请求额外显示 `d 完成`。元信息右侧有可点击的「⌂ 目录」。
 - **点选提示**：warning 色左竖线 + `点选请求` + prompt；不写长句、不用 emoji。
 - 无 Kitty/Sixel 时画框内是 ASCII 亮度图；有图形协议时同一位置换成真实画面。
 
@@ -189,13 +201,17 @@ blender_viewport(op="doctor")
 | 跟随模式 | 按 `f`/点「▶ 跟随」→ 状态带 `· FOLLOW`；每 2.5 s 自动抓帧（1000 长边），`seq` 持续递增；Blender 忙时暂停；再按 `f` 关闭 |
 | 渲染状态 | 人工写 `renders/render_state.json` → 头部 `● RENDERING`、跟随暂停；删除后恢复 `LIVE`/`STALE` |
 | 作业区 | 起一个 headless 作业 → 面板出现 `JOBS` running 行；点击行显示日志尾部；作业结束后不再显示 running 行 |
+| 保存帧 | 按 `s` → `~/Pictures/blender-viewport-*.png` 出现、toast 路径；文件为合法 PNG |
+| 复制对象名 | 点选命中后按 `y` → 剪贴板内容为对象名；无剪贴板工具时 toast 完整名字 |
+| 打开目录 | 按 `o` → 文件管理器打开当前 `.blend` 所在目录；未保存时提示 |
+| 缩放/平移 | `+`/`-`/`0` 改 `· 1.5×`、画面裁剪；`h/j/k/l` 平移不越界；点选坐标仍命中同一物体 |
 | 模型 `blender_rt_pick` | 面板自动打开并显示 `点选请求` 提示；点击画面后工具返回 `PICK ok`（点空处返回空处语义） |
 | `Esc` 取消 | 工具返回 `PICK 已取消`，面板 toast「已取消点选请求」 |
 | 无面板时 `blender_rt_pick` | 独立后端（无 watcher）**2.8 s** 返回 `PICK 未检测到可应答的视口面板`，请求已 cancel，不再等 120 s |
 | 有 watcher 时 `blender_rt_pick` | 模拟 watcher（1 s 一次 `/host/view/latest`，非真实面板）下，`timeout_s=5` 仍等满 **5.2 s** 返回原超时语义（不误杀） |
-| 聚焦自检 | `tests/tui_panel_selftest.mjs` **23/23** · `tests/scene_revision_selftest.mjs` **5/5** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
+| 聚焦自检 | `tests/tui_panel_selftest.mjs` **27/27** · `tests/scene_revision_selftest.mjs` **5/5** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
 | `npm test` | exit 0（discoverability 51/51 + 上述聚焦自检） |
 | 无图形协议回退 | tmux 内显示自动对比度 ASCII 预览（物体轮廓可见），取帧/点选/模型看图均正常 |
 
 > 未覆盖：真实 Kitty/Sixel 终端里的像素级呈现（本机 tmux 无 passthrough）；多选 UI、缩放平移、
-> `@` 提及。它们不是本次适配的承诺，见 §1 对照表。
+> 作业区、`@` 提及。它们不是本次适配的承诺，见 §1 对照表。

@@ -156,6 +156,15 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
 - **Rendering / jobs**: while a GUI render is active the status becomes `● RENDERING` and auto/follow
   captures pause; running headless jobs appear as a `JOBS` row below the image (click a row or press
   `J` to expand the last 3 log lines).
+- **Save / copy / reveal**: `s` (or the "⤓ Save" button) writes the current frame as PNG into
+  `~/Pictures`; `y` (or "⧉ Copy") copies the last picked object name; `o` (or "⌂ Folder") reveals
+  the current `.blend` in the file manager.
+- **Zoom / pan**: mouse wheel zooms around the cursor, drag pans, and the `− / + / ⟲` controls in the
+  meta line are clickable; click-to-pick is mapped back through the crop window, so small parts stay
+  clickable after zooming. Keyboard `+`/`-`/`0` and `h/j/k/l` still work but are optional.
+- **IME note**: terminals hand single letters to the input method first, so single-letter shortcuts
+  do not fire while composing. Mouse wheel/drag and the clickable buttons do not go through the IME;
+  every action (refresh/follow/save/copy/folder/zoom) has a mouse entry point.
 - **Follow mode**: click "▶ Follow" or press `f`; it captures every 2.5 s (1000 px long edge, only
   while Blender is quiet), for a near-real-time preview while editing directly in Blender. Off by
   default (a 1600 px capture takes ~1 s and continuous following occupies the main thread).
@@ -168,7 +177,7 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   viewport) — capture, picking and the model's own view keep working (the model always receives the
   PNG attachment).
 - **Not yet available**: click-to-message (`sendToChat` is not authorized), `@` mentions, and the
-  v2.1 multi-select UI / zoom.
+  v2.1 multi-select UI / zoom / jobs area.
 - **Kill switch**: profile row `config.tuiPanel: false` (default `true`; only applies to hosts that
   provide `tuiPanels`).
 

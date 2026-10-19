@@ -61,10 +61,31 @@ export declare function rgbaToAscii(image: {
     data: Uint8Array;
 }, columns?: number, rows?: number): string;
 /**
- * 把图像 Box 的单元格局部坐标映射成 0..1 归一化坐标（左上原点、y 向下）。
- * 落在图外返回 null —— v2.1 §8.1 要求"图外点击不发请求"；边界处按
- * [0,1] 夹取（终端点击坐标可能刚好落在右/下边缘）。
+ * v2.3：按 zoom/tx/ty 算出原图上的裁剪窗口（像素矩形）。
+ * tx/ty 是相对画面中心的归一化偏移；窗口会被夹在原图内，不会裁出黑边。
  */
+export declare function computeCrop(width: number, height: number, zoom: number, tx: number, ty: number): {
+    sx: number;
+    sy: number;
+    sw: number;
+    sh: number;
+};
+/** 从 RGBA 图里裁一块（拷贝；整图时直接返回原对象）。 */
+export declare function cropRgba(image: any, rect: any): any;
+/** 把显示窗口内的 0..1 坐标映射回原图的 0..1 坐标（点选用）。 */
+export declare function mapDisplayToFull(point: any, crop: any, width: number, height: number): {
+    x: number;
+    y: number;
+};
+/**
+ * 以光标为锚点缩放：缩放前后光标下面的原图像素保持不动。
+ * 返回新的 zoom/tx/ty（tx/ty 是相对画面中心的归一化偏移）。
+ */
+export declare function zoomAtPoint(s: any): {
+    zoom: number;
+    tx: number;
+    ty: number;
+};
 export declare function mapClickToNormalized(localCol: number, localRow: number, columns: number, rows: number): {
     x: number;
     y: number;
@@ -98,6 +119,8 @@ declare function followCaptureDue(s: any): boolean;
 declare function revisionStaleDue(s: any): boolean;
 /** 帧龄的人类可读形式（0.8s / 12s / 2m 5s）。 */
 declare function formatAge(ms: number): string;
+/** 文件名里只留安全字符（场景名可能带空格/斜杠）。 */
+declare function safeFilePart(value: string): string;
 /**
  * 创建视口面板组件。返回的组件吃 `TuiPanelProps`（dsh-TUI
  * `src/dsh-adapter/panels.ts`），用宿主 React 渲染。
@@ -132,6 +155,11 @@ export declare const __internals: {
     downscaleRgba: typeof downscaleRgba;
     rgbaToAscii: typeof rgbaToAscii;
     mapClickToNormalized: typeof mapClickToNormalized;
+    computeCrop: typeof computeCrop;
+    cropRgba: typeof cropRgba;
+    mapDisplayToFull: typeof mapDisplayToFull;
+    zoomAtPoint: typeof zoomAtPoint;
+    safeFilePart: typeof safeFilePart;
     autoCaptureDecision: typeof autoCaptureDecision;
     followCaptureDue: typeof followCaptureDue;
     revisionStaleDue: typeof revisionStaleDue;

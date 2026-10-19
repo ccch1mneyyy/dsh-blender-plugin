@@ -7,6 +7,8 @@
  *     混用、多段 IDAT），断言像素；坏数据/不支持格式一律 null 不抛。
  *   · fitCells：终端单元 2:1、clamp、极窄面板、纵横比。
  *   · mapClickToNormalized：0..1 映射、边界夹取、图外 null。
+ *   · computeCrop / cropRgba / mapDisplayToFull：缩放/平移裁剪与点选反算。
+ *   · safeFilePart：PNG 文件名里的场景名清洗。
  *   · downscaleRgba：最近邻缩放形状/像素。
  *   · autoCaptureDecision：stale + 静默才重拍；隐藏/点选/忙/节流/同 seq/停手全部跳过。
  *   · followCaptureDue：只有跟随开启、面板可见、静默、且到间隔才抓。
@@ -365,6 +367,54 @@ test('rgbaToAscii: 行列数 + 亮度映射', () => {
 });
 
 // ── mapClickToNormalized ─────────────────────────────────────────────────
+// ── zoom / pan ─────────────────────────────────────────────────────────────
+test('computeCrop: 1× 全图、2× 居中、边缘夹取', () => {
+  const crop = mod.__internals.computeCrop;
+  assert.deepEqual(crop(1000, 500, 1, 0, 0), { sx: 0, sy: 0, sw: 1000, sh: 500 });
+  assert.deepEqual(crop(1000, 500, 2, 0, 0), { sx: 250, sy: 125, sw: 500, sh: 250 });
+  assert.equal(crop(1000, 500, 2, 1, 1).sx, 500);
+  assert.equal(crop(1000, 500, 2, -1, -1).sx, 0);
+});
+
+test('safeFilePart: 场景名清洗与兜底', () => {
+  const clean = mod.__internals.safeFilePart;
+  assert.equal(clean('Scene/../A B'), 'Scene_.._A_B');
+  assert.equal(clean('中文名'), 'scene');
+  assert.equal(clean(''), 'scene');
+});
+
+test('zoomAtPoint: 中心/边缘锚点保持、缩回 1× 复位', () => {
+  const z = mod.__internals.zoomAtPoint;
+  assert.deepEqual(
+    z({ width: 1000, height: 500, zoom: 1, tx: 0, ty: 0, px: 0.5, py: 0.5, factor: 2 }),
+    { zoom: 2, tx: 0, ty: 0 },
+  );
+  const left = z({ width: 1000, height: 500, zoom: 1, tx: 0, ty: 0, px: 0, py: 0.5, factor: 2 });
+  assert.equal(left.zoom, 2);
+  assert.ok(left.tx < -0.2, 'left-edge zoom should move crop left');
+  const reset = z({ width: 1000, height: 500, zoom: 2, tx: -0.25, ty: 0, px: 0.5, py: 0.5, factor: 0.5 });
+  assert.deepEqual(reset, { zoom: 1, tx: 0, ty: 0 });
+});
+
+test('cropRgba + mapDisplayToFull: 裁剪像素与点选反算', () => {
+  const image = { width: 2, height: 2, data: new Uint8Array([
+    0, 0, 0, 255,   10, 10, 10, 255,
+    20, 20, 20, 255, 30, 30, 30, 255,
+  ]) };
+  const cropped = mod.__internals.cropRgba(image, { sx: 1, sy: 1, sw: 1, sh: 1 });
+  assert.equal(cropped.width, 1);
+  assert.equal(cropped.height, 1);
+  assert.deepEqual(Array.from(cropped.data), [30, 30, 30, 255]);
+  assert.deepEqual(
+    mod.__internals.mapDisplayToFull({ x: 0.5, y: 0.5 }, { sx: 250, sy: 125, sw: 500, sh: 250 }, 1000, 500),
+    { x: 0.5, y: 0.5 },
+  );
+  assert.deepEqual(
+    mod.__internals.mapDisplayToFull({ x: 0, y: 0 }, { sx: 250, sy: 125, sw: 500, sh: 250 }, 1000, 500),
+    { x: 0.25, y: 0.25 },
+  );
+});
+
 test('mapClickToNormalized: 0..1、边界夹取、图外 null', () => {
   assert.deepEqual(mod.mapClickToNormalized(0, 0, 40, 20), { x: 0, y: 0 });
   assert.deepEqual(mod.mapClickToNormalized(39, 19, 40, 20), { x: 0.975, y: 0.95 });
