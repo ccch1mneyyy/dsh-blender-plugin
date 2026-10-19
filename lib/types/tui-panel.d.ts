@@ -70,6 +70,20 @@ export declare function mapClickToNormalized(localCol: number, localRow: number,
     y: number;
 } | null;
 /**
+ * 面板可见、场景改过（`stale`）且 Blender 静默（`blender_quiet`）时，
+ * 自动重拍一帧。语义与 Web 端 `src/client/index.js` 的
+ * `autoCaptureDecision` 保持一致（上游 A8：静默 0.8 s 后重拍，连续编辑只出一张）：
+ * - 看不见 / 正在点选 / 有帧没到 / 不陈旧 → 跳过；
+ * - 连续 3 次无进展 → 停手（避免场景持续变化时无限打后端）；
+ * - Blender 还在忙 → 等静默；
+ * - 同一 seq 已经重拍过 → 只记"无进展"，不发新请求；
+ * - 两次重拍至少间隔 1200 ms。
+ */
+declare function autoCaptureDecision(s: any): {
+    action: string;
+    reason: string;
+};
+/**
  * 创建视口面板组件。返回的组件吃 `TuiPanelProps`（dsh-TUI
  * `src/dsh-adapter/panels.ts`），用宿主 React 渲染。
  */
@@ -103,5 +117,7 @@ export declare const __internals: {
     downscaleRgba: typeof downscaleRgba;
     rgbaToAscii: typeof rgbaToAscii;
     mapClickToNormalized: typeof mapClickToNormalized;
+    autoCaptureDecision: typeof autoCaptureDecision;
     tuiPanelState: typeof tuiPanelState;
 };
+export {};

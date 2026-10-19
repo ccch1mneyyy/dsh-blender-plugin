@@ -163,6 +163,8 @@ v2.2 给 `/host/*` 新增 `ui`/`watching` 附加字段，并让 `blender_rt_pick
   实际 id 由宿主分配（没有 Component identity 时形如 `act1:viewport`）；
   跑 `blender_viewport(op="doctor")` 会打印 `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）`。
 - **面板内**：`c` 抓一帧（`max_size=1600`）· `r` 刷新 · 点画面选物体 · `Esc` 取消 pending 点选。
+- **自动刷新**：面板可见时，场景改过（`stale`）且 Blender 静默 0.8 s 后自动重拍，状态从
+  `STALE` 回 `LIVE`；1200 ms 节流，连续 3 次无进展停手，按 `c` 手动捕获复位。
 - **模型请用户点选**：`blender_rt_pick` 发请求后会**自动打开/聚焦**面板并显示横幅；
   点完对象名直接回给模型，`Esc` 取消。若没有面板在轮询（TUI < 0.16 / 面板注册失败 / `tuiPanel:false`），
   工具约 **2.5 s** 返回 `PICK 无人应答`，不再空等 120–600 s。

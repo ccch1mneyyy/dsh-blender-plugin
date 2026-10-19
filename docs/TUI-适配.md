@@ -77,11 +77,16 @@ blender_viewport(op="doctor")
 | 点击画面 | 有模型点选请求 → `POST /host/pick/answer` 应答；没有请求 → `POST /host/view/pick` 并 toast 命中对象名 |
 | `c` | `POST /host/view/capture` 抓当前 GUI 视口一帧（`max_size=1600`） |
 | `r` | 立即刷新 `/host/ready` + `/host/view/latest` |
+| 场景改后静默 | 面板可见且 `stale` + `blender_quiet` 时自动 `POST /host/view/capture`（1200 ms 节流；连续 3 次无进展停手，按 `c` 手动捕获复位） |
 | `Esc` | 有 pending 点选请求时取消它（`POST /host/pick/cancel`）并阻止面板关闭；没有请求时不拦截，按宿主语义退出面板 |
 | 切走面板 | 停止轮询；切回来继续（面板不可见时不发请求） |
 
 面板挂载时如果后端还**没有任何帧**（`seq=0`），会自动抓一帧；失败不重试、也不额外弹错误
 （面板保持 `NO FRAME`，可按 `c` 手动再捕），不会反复重试轰炸 Blender。
+
+场景改过（`stale=true`）且 Blender 静默 0.8 s 后，面板会自动重拍一帧，状态从 `STALE` 回到
+`LIVE`；1200 ms 节流保证连续编辑只出一张。连续 3 次无进展会停手（避免场景持续变化时无限打
+后端），按 `c` 手动捕获即可复位。
 
 **模型请求点选时自动打开**：`blender_rt_pick` 发起点选后，host 侧调用 `tuiPanels.open()`，
 把面板切到前台并聚焦；请求挂起期间在画框上方显示一条 `点选请求` 提示
@@ -168,11 +173,12 @@ blender_viewport(op="doctor")
 | TUI 里 `blender_viewport(op=doctor)` | `kind=ok`，且 `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）` |
 | 面板打开 | 标签栏出现「Blender 视口」；品牌头 `BLENDER  VIEWPORT` + 状态点 `● LIVE/STALE/IDLE`，元信息 `Scene · W × H · frame N` |
 | `c` 捕获 | seq 递增、尺寸变 1600 长边、`fresh` |
+| 场景改后自动重拍 | 改场景 → 等 Blender 静默 0.8 s → 面板从 `STALE` 回 `LIVE`，`frame N` 递增；连续 3 次无进展停手，按 `c` 复位 |
 | 模型 `blender_rt_pick` | 面板自动打开并显示 `点选请求` 提示；点击画面后工具返回 `PICK ok`（点空处返回空处语义） |
 | `Esc` 取消 | 工具返回 `PICK 已取消`，面板 toast「已取消点选请求」 |
 | 无面板时 `blender_rt_pick` | 独立后端（无 watcher）**2.8 s** 返回 `PICK 未检测到可应答的视口面板`，请求已 cancel，不再等 120 s |
 | 有 watcher 时 `blender_rt_pick` | 模拟 watcher（1 s 一次 `/host/view/latest`，非真实面板）下，`timeout_s=5` 仍等满 **5.2 s** 返回原超时语义（不误杀） |
-| 聚焦自检 | `tests/tui_panel_selftest.mjs` **16/16** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
+| 聚焦自检 | `tests/tui_panel_selftest.mjs` **19/19** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
 | `npm test` | exit 0（discoverability 51/51 + 上述聚焦自检） |
 | 无图形协议回退 | tmux 内显示自动对比度 ASCII 预览（物体轮廓可见），取帧/点选/模型看图均正常 |
 

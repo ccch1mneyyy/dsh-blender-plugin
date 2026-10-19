@@ -8,6 +8,7 @@
  *   · fitCells：终端单元 2:1、clamp、极窄面板、纵横比。
  *   · mapClickToNormalized：0..1 映射、边界夹取、图外 null。
  *   · downscaleRgba：最近邻缩放形状/像素。
+ *   · autoCaptureDecision：stale + 静默才重拍；隐藏/点选/忙/节流/同 seq/停手全部跳过。
  *   · registerTuiViewportPanel：descriptor 字段、disposer 经 ctx.effect 清理、
  *     无服务/register 抛错/ctx.effect 抛错都不抛。
  *
@@ -387,7 +388,44 @@ test('导出面：4 个函数 + __internals 指向同一实现', () => {
   assert.equal(mod.__internals.downscaleRgba, mod.downscaleRgba);
   assert.equal(mod.__internals.rgbaToAscii, mod.rgbaToAscii);
   assert.equal(typeof mod.__internals.mapClickToNormalized, 'function');
+  assert.equal(typeof mod.__internals.autoCaptureDecision, 'function');
   assert.equal(mod.__internals.tuiPanelState, mod.tuiPanelState);
+});
+
+// ── 自动重拍决策（与 Web 端 autoCaptureDecision 同语义）──────────────────
+const autoBase = () => ({
+  seq: 7,
+  stale: true,
+  blenderQuiet: true,
+  visible: true,
+  picking: false,
+  now: 10000,
+  lastAt: 0,
+  lastSeq: 0,
+  stuck: 0,
+  minIntervalMs: 1200,
+  maxStuck: 3,
+});
+
+test('autoCapture: 前提不满足时全部跳过', () => {
+  const decide = mod.__internals.autoCaptureDecision;
+  assert.deepEqual(decide({ ...autoBase(), visible: false }), { action: 'skip', reason: 'hidden' });
+  assert.deepEqual(decide({ ...autoBase(), picking: true }), { action: 'skip', reason: 'picking' });
+  assert.deepEqual(decide({ ...autoBase(), seq: 0 }), { action: 'skip', reason: 'no_frame' });
+  assert.deepEqual(decide({ ...autoBase(), stale: false }), { action: 'skip', reason: 'fresh' });
+  assert.deepEqual(decide({ ...autoBase(), blenderQuiet: false }), { action: 'skip', reason: 'busy' });
+});
+
+test('autoCapture: stale + Blender 静默才重拍', () => {
+  const decide = mod.__internals.autoCaptureDecision;
+  assert.deepEqual(decide(autoBase()), { action: 'capture', reason: 'stale_and_quiet' });
+});
+
+test('autoCapture: 节流 / 同 seq / 停手', () => {
+  const decide = mod.__internals.autoCaptureDecision;
+  assert.deepEqual(decide({ ...autoBase(), lastAt: 9500 }), { action: 'skip', reason: 'throttled' });
+  assert.deepEqual(decide({ ...autoBase(), lastSeq: 7 }), { action: 'noProgress', reason: 'same_seq' });
+  assert.deepEqual(decide({ ...autoBase(), stuck: 3 }), { action: 'stop', reason: 'stuck' });
 });
 
 // ── registerTuiViewportPanel ─────────────────────────────────────────────

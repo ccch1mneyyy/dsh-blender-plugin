@@ -146,6 +146,10 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）`.
 - **Inside the panel**: `c` captures a frame (`max_size=1600`) · `r` refreshes · click the image to
   pick an object · `Esc` cancels a pending pick request.
+- **Auto-refresh**: while the panel is visible, a stale frame is recaptured automatically once the
+  scene has changed and Blender has been quiet for 0.8 s; the status goes `STALE` → `LIVE`.
+  Recaptures are throttled to one per 1200 ms and stop after 3 consecutive no-progress attempts
+  (press `c` to reset).
 - **Model-requested picking**: after `blender_rt_pick` creates a request, the panel is opened/focused
   automatically and shows a banner; the clicked object name goes straight back to the model. If no
   panel is polling (TUI < 0.16 / panel registration failed / `tuiPanel: false`), the tool returns
