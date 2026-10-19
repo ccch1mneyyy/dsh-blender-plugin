@@ -153,6 +153,9 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   consecutive no-progress attempts (press `r`/`c` to reset). The GUI revision comes from a depsgraph
   handler inside Blender, so **mouse edits also trigger a recapture** without an agent command.
 - **Frame age**: the meta line shows `Scene · W × H · frame N · 3s ago`.
+- **Rendering / jobs**: while a GUI render is active the status becomes `● RENDERING` and auto/follow
+  captures pause; running headless jobs appear as a `JOBS` row below the image (click a row or press
+  `J` to expand the last 3 log lines).
 - **Follow mode**: click "▶ Follow" or press `f`; it captures every 2.5 s (1000 px long edge, only
   while Blender is quiet), for a near-real-time preview while editing directly in Blender. Off by
   default (a 1600 px capture takes ~1 s and continuous following occupies the main thread).
@@ -165,7 +168,7 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   viewport) — capture, picking and the model's own view keep working (the model always receives the
   PNG attachment).
 - **Not yet available**: click-to-message (`sendToChat` is not authorized), `@` mentions, and the
-  v2.1 multi-select UI / zoom / jobs area.
+  v2.1 multi-select UI / zoom.
 - **Kill switch**: profile row `config.tuiPanel: false` (default `true`; only applies to hosts that
   provide `tuiPanels`).
 

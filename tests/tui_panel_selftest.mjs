@@ -419,6 +419,7 @@ test('autoCapture: 前提不满足时全部跳过', () => {
   assert.deepEqual(decide({ ...autoBase(), seq: 0 }), { action: 'skip', reason: 'no_frame' });
   assert.deepEqual(decide({ ...autoBase(), stale: false }), { action: 'skip', reason: 'fresh' });
   assert.deepEqual(decide({ ...autoBase(), blenderQuiet: false }), { action: 'skip', reason: 'busy' });
+  assert.deepEqual(decide({ ...autoBase(), renderBusy: true }), { action: 'skip', reason: 'rendering' });
 });
 
 test('autoCapture: stale + Blender 静默才重拍', () => {
@@ -457,6 +458,7 @@ test('followCapture: 关闭 / 不可见 / 点选 / Blender 忙 都跳过', () =>
   assert.equal(due({ ...followBase(), visible: false }), false);
   assert.equal(due({ ...followBase(), picking: true }), false);
   assert.equal(due({ ...followBase(), blenderQuiet: false }), false);
+  assert.equal(due({ ...followBase(), renderBusy: true }), false);
   assert.equal(due({ ...followBase(), seq: 0 }), false);
 });
 

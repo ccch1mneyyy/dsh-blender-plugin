@@ -462,6 +462,7 @@ function errorLine(error: any): string {
  */
 function autoCaptureDecision(s: any): { action: string; reason: string } {
   if (s.visible === false) return { action: 'skip', reason: 'hidden' }
+  if (s.renderBusy === true) return { action: 'skip', reason: 'rendering' }
   if (s.picking === true) return { action: 'skip', reason: 'picking' }
   if (!(s.seq > 0)) return { action: 'skip', reason: 'no_frame' }
   if (s.stale !== true) return { action: 'skip', reason: 'fresh' }
@@ -481,6 +482,7 @@ function autoCaptureDecision(s: any): { action: string; reason: string } {
 function followCaptureDue(s: any): boolean {
   if (s.follow !== true) return false
   if (s.visible === false) return false
+  if (s.renderBusy === true) return false
   if (s.picking === true) return false
   if (!(s.seq > 0)) return false
   if (s.blenderQuiet !== true) return false
@@ -538,6 +540,12 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const [pollMs, setPollMs] = React.useState(POLL_MS)
     // 跟随模式：默认关；打开后按固定节律抓帧，用来近似"实时预览"。
     const [follow, setFollow] = React.useState(false)
+    // v2.3：GUI 渲染状态（读 render_guard 标记文件）与 headless 作业区。
+    const [renderBusy, setRenderBusy] = React.useState(false)
+    const [renderAgeMs, setRenderAgeMs] = React.useState(null)
+    const [jobs, setJobs] = React.useState([])
+    const [selectedJobId, setSelectedJobId] = React.useState(null)
+    const [jobLog, setJobLog] = React.useState(null)
 
     // effect 里要读最新值，但不该因为每次 setState 重订阅。
     const latestRef = React.useRef(latest)
@@ -555,6 +563,11 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const followRef = React.useRef(false)
     followRef.current = follow
     const followAtRef = React.useRef(0)
+    const jobsPolledAtRef = React.useRef(0)
+    const selectedJobRef = React.useRef(null)
+    selectedJobRef.current = selectedJobId
+    const jobsRef = React.useRef([])
+    jobsRef.current = jobs
     const pickPolledAtRef = React.useRef(0)
     const captureTriedRef = React.useRef(false)
     const clickBusyRef = React.useRef(false)
@@ -594,6 +607,13 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         return next
       })
       setReloadToken(token => token + 1)
+    }
+
+    // v2.3：作业区选中/展开（点击行或按 j）；下次轮询立即拉日志。
+    const toggleJob = (id: string) => {
+      setSelectedJobId(previous => (previous === id ? null : id))
+      setJobLog(null)
+      jobsPolledAtRef.current = 0
     }
 
     React.useEffect(() => {
@@ -662,6 +682,32 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
           const revisionStale = !!(revisionOk && revisionData.revision_stale === true
             && revisionStaleDue({ revisionStale: true, idleMs: revisionIdleMs, minIdleMs: REVISION_IDLE_MS }))
 
+          // v2.3：GUI 渲染状态（零 Blender 往返；render_guard 写标记文件）。
+          const renderRes = await fetchJson(port, '/host/render-state?client=tui')
+          if (!aliveRef.current) return
+          const renderData = renderRes && renderRes.status === 200 ? renderRes.data : null
+          const renderBusyNow = !!(renderData && renderData.ok === true && renderData.busy === true)
+          setRenderBusy(renderBusyNow)
+          setRenderAgeMs(renderData && Number.isFinite(Number(renderData.age_ms)) ? Number(renderData.age_ms) : null)
+
+          // v2.3：headless 作业区（只读台账；2 s 轮询；选中时带 3 行日志尾部）。
+          if (now - jobsPolledAtRef.current >= 2000) {
+            jobsPolledAtRef.current = now
+            const jobsRes = await fetchJson(port, '/host/jobs?limit=4')
+            if (!aliveRef.current) return
+            const jobsData = jobsRes && jobsRes.status === 200 && jobsRes.data && jobsRes.data.ok === true ? jobsRes.data : null
+            setJobs(jobsData && Array.isArray(jobsData.jobs) ? jobsData.jobs : [])
+            const selected = selectedJobRef.current
+            if (selected) {
+              const logRes = await fetchJson(port, '/host/jobs/log?id=' + encodeURIComponent(selected) + '&tail=1200')
+              if (!aliveRef.current) return
+              const logData = logRes && logRes.status === 200 && logRes.data && logRes.data.ok === true ? logRes.data : null
+              const text = logData ? String(logData.stdout || logData.stderr || '') : ''
+              const lines = text.split(/\r?\n/).filter(line => line.trim()).slice(-3)
+              setJobLog(lines.length ? lines.join('\n') : (logData ? '(no output)' : '日志读取失败'))
+            }
+          }
+
           const latestRes = await fetchJson(port, '/host/view/latest?client=tui')
           if (!aliveRef.current) return
           const data = latestRes ? latestRes.data : null
@@ -716,6 +762,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
             if (followCaptureDue({
               follow: true,
               visible: visible,
+              renderBusy: renderBusyNow,
               picking: picking,
               seq: nextLatest.seq,
               blenderQuiet: nextLatest.blenderQuiet,
@@ -733,6 +780,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
               stale: autoStale,
               blenderQuiet: nextLatest.blenderQuiet,
               visible: visible,
+              renderBusy: renderBusyNow,
               picking: picking,
               now: nowMs,
               lastAt: auto.lastAt,
@@ -875,6 +923,11 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
         } else if (input === 'f' || input === 'F') {
           try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
           toggleFollow()
+        } else if (input === 'J') {
+          try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
+          const list = jobsRef.current || []
+          const target = list.find((job: any) => job && job.status === 'running') || list[0]
+          if (target && target.id) toggleJob(String(target.id))
         } else if ((input === 'd' || input === 'D') && pickRef.current && pickRef.current.multi) {
           try { event.preventDefault() } catch (error) { /* 宿主已消费 */ }
           void finishMulti()
@@ -899,11 +952,15 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       : decoded && decoded.image ? decoded.image.height : 0
     const sceneName = latest.scene || shortName(latest.file) || 'untitled'
     const frameStale = latest.stale || latest.revisionStale
-    const status = ready === false ? 'OFFLINE' : frameStale ? 'STALE' : latest.seq > 0 ? 'LIVE' : 'IDLE'
-    const statusColor = status === 'OFFLINE' ? 'error' : status === 'STALE' ? 'warning' : status === 'LIVE' ? 'success' : 'subtle'
+    const status = ready === false ? 'OFFLINE' : renderBusy ? 'RENDERING' : frameStale ? 'STALE' : latest.seq > 0 ? 'LIVE' : 'IDLE'
+    const statusColor = status === 'OFFLINE' ? 'error' : (status === 'STALE' || status === 'RENDERING') ? 'warning' : status === 'LIVE' ? 'success' : 'subtle'
     const bannerRows = pick ? 2 : notice ? 1 : 0
-    // 头部 2 + 两条分隔线 2 + 键位 1 + 画框上下边框 2 + 通知行。
-    const maxImageRows = Math.max(1, height - 7 - bannerRows)
+    const shownJobs = jobs.filter((job: any) => job && (job.status === 'running' || job.id === selectedJobId)).slice(0, 2)
+    const jobsRows = shownJobs.length
+      ? 1 + shownJobs.length + (selectedJobId && jobLog ? Math.min(3, jobLog.split('\n').length) : 0)
+      : 0
+    // 头部 2 + 两条分隔线 2 + 键位 1 + 画框上下边框 2 + 通知行 + 作业区。
+    const maxImageRows = Math.max(1, height - 7 - bannerRows - jobsRows)
     const maxImageCols = Math.max(8, width - 4)
     const layout = fitCells(
       frameWidth || 16,
@@ -936,8 +993,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       return scaled ? { data: scaled.data, width: scaled.width, height: scaled.height } : null
     }, [decoded])
     // 无 Kitty/Sixel 时 `<Image>` 的 children 就是用户能看到的全部画面。
-    // ASCII 直接取全分辨率帧按 cell 采样：source 保持自然纵横比，不能拿它
-    // 当 cell 图用；点击仍按 cell 坐标映射。
+    // ASCII 直接取全分辨率帧按 cell 采样；点击仍按 cell 坐标映射。
     const ascii = React.useMemo(
       () => (decoded && decoded.image ? rgbaToAscii(decoded.image, layout.columns, layout.rows) : ''),
       [decoded, layout.columns, layout.rows],
@@ -1035,8 +1091,9 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     )
     const ageMs = latest.capturedAt > 0 ? Math.max(0, Date.now() - latest.capturedAt * 1000) : null
     const ageText = ageMs === null ? '' : '  ·  ' + formatAge(ageMs) + ' ago'
+    const renderText = renderBusy ? '  ·  rendering ' + formatAge(renderAgeMs || 0) : ageText
     const metaText = latest.seq > 0
-      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq) + ageText
+      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq) + renderText
       : 'no frame captured'
     const meta = React.createElement(
       ui.Box,
@@ -1125,6 +1182,31 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       { onClick, paddingX: 1, flexShrink: 0 },
       React.createElement(ui.Text, { color, wrap: 'truncate' }, label),
     )
+    const jobsSection = shownJobs.length
+      ? React.createElement(
+          ui.Box,
+          { flexDirection: 'column', paddingX: 1, flexShrink: 0 },
+          React.createElement(ui.Text, { color: 'accent', bold: true, wrap: 'truncate' }, 'JOBS'),
+          ...shownJobs.map((job: any) => {
+            const tone = job.status === 'running' ? 'success' : job.status === 'failed' ? 'error' : 'subtle'
+            const stage = job.stageName ? '  ·  ' + String(job.stageName) : ''
+            return React.createElement(
+              ui.Box,
+              { key: String(job.id), onClick: () => toggleJob(String(job.id)) },
+              React.createElement(ui.Text, { color: tone, wrap: 'truncate' },
+                '● ' + String(job.id) + '  ·  ' + String(job.status || '?') + '  ·  '
+                + formatAge(Number(job.ms) || 0) + stage),
+            )
+          }),
+          ...(selectedJobId && jobLog
+            ? jobLog.split('\n').map((line, index) => React.createElement(
+                ui.Text,
+                { key: 'joblog-' + String(index), color: 'subtle', wrap: 'truncate' },
+                line,
+              ))
+            : []),
+        )
+      : null
     const footer = React.createElement(
       ui.Box,
       { flexDirection: 'row', justifyContent: 'space-between', paddingX: 1 },
@@ -1147,6 +1229,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       React.createElement(ui.Divider, { color: 'subtle' }),
       callout,
       imageWell,
+      jobsSection,
       React.createElement(ui.Box, { flexGrow: 1 }),
       React.createElement(ui.Divider, { color: 'subtle' }),
       footer,

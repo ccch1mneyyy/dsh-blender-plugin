@@ -19,6 +19,7 @@
  *   ── v1.2（契约 §7.1/§7.2）──
  *   GET  /host/ready         就绪门控（**零 I/O、零 bpy 往返**，面板每 2 s 轮询）
  *   GET  /host/scene-revision v2.3：GUI 编辑 revision（Blender 侧 depsgraph handler 写共享 workDir JSON；读到即返回）
+ *   GET  /host/render-state   v2.3：GUI 渲染状态（读 render_guard 标记文件；零 Blender 往返）
  *   POST /host/pick/request  发起点选请求（模型侧；全局至多一个 pending）
  *   GET  /host/pick/request  面板取当前 pending（过期先判过期）
  *   POST /host/pick/answer   应答（复用 §1.5 的 pick 逻辑；错配不结束请求）
@@ -301,7 +302,7 @@ async function handleHost(req, res, url, p) {
   // 这些路由本来就零 Blender 往返，记一个时间戳不改变任何语义。
   const webPageAlive = origin !== null && HOST_ORIGIN_RE.test(String(origin));
   if (req.method === 'GET'
-    && (p === '/host/view/latest' || p === '/host/view.png' || p === '/host/scene-revision' || p === '/host/pick/request'
+    && (p === '/host/view/latest' || p === '/host/view.png' || p === '/host/scene-revision' || p === '/host/render-state' || p === '/host/pick/request'
       || (p === '/host/ready' && webPageAlive))) {
     hostPresence.note(String(url.searchParams.get('client') || 'unknown'));
   }
@@ -397,6 +398,15 @@ async function handleHost(req, res, url, p) {
       viewStore.noteSceneRevision(Number(out.revision));
       out.revision_stale = viewStore.isRevisionStale();
     }
+    hostJson(res, 200, out, origin);
+    return;
+  }
+
+  // v2.3：GUI 渲染状态（render_guard 写标记文件，后端只读文件；零 Blender 往返）。
+  if (req.method === 'GET' && p === '/host/render-state') {
+    let out;
+    try { out = await engine.renderState(); }
+    catch (e) { out = { ok: false, error: String((e && e.message) || e) }; }
     hostJson(res, 200, out, origin);
     return;
   }
@@ -1026,7 +1036,7 @@ try {
   console.error('[blender-rt] 启动时未连上 addon（Blender 未运行或 addon 未监听 9876）：' + String((e && e.message) || e));
 }
 
-const onListening = () => console.log('[blender-rt] http://' + HOST + ':' + String(PORT) + '/  (routes: /health /status /doctor /who /frame.png /act /view /headless /plan /worker /txn /preset /lease /job /host/ready /host/scene-revision /host/view/latest /host/view.png /host/view/capture /host/view/pick /host/scene-items /host/pick/request /host/pick/answer /host/pick/cancel /host/pick/result /host/pick/remove /host/jobs /host/jobs/log)');
+const onListening = () => console.log('[blender-rt] http://' + HOST + ':' + String(PORT) + '/  (routes: /health /status /doctor /who /frame.png /act /view /headless /plan /worker /txn /preset /lease /job /host/ready /host/scene-revision /host/render-state /host/view/latest /host/view.png /host/view/capture /host/view/pick /host/scene-items /host/pick/request /host/pick/answer /host/pick/cancel /host/pick/result /host/pick/remove /host/jobs /host/jobs/log)');
 let reclaimTries = 0;   // 夺端口最多 2 次，防止两个实例互踢成死循环
 
 // S9：端口被占（EADDRINUSE）时给可执行结论 —— 现场遇到过"僵死后端占着 9877、WSL 里看不到 PID"。

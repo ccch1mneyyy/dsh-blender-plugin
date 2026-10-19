@@ -2471,6 +2471,12 @@ export function createEngine(opts = {}) {
     },
     /** 渲染性能：status / apply / revert / analyze / help */
     async perf(op, payload) { return perfCall(op, payload); },
+    /** v2.3：渲染状态（读 render_guard 写的标记文件；零 Blender 往返）。 */
+    async renderState() {
+      const g = readRenderFlag();
+      return { ok: true, busy: !!(g.present && !g.stale), stale: !!g.stale,
+               age_ms: g.ageMs, flag: g.info, stale_ms: RENDER_STALE_MS };
+    },
     /** 对象精简：opt_analyze / opt_join */
     async opt(op, payload) { return perfCall(op, payload); },
     /** 取一帧视口 PNG（覆盖写固定文件） */

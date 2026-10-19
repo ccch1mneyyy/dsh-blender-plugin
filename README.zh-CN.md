@@ -167,6 +167,8 @@ v2.2 给 `/host/*` 新增 `ui`/`watching` 附加字段，并让 `blender_rt_pick
   状态从 `STALE` 回 `LIVE`；1200 ms 节流，连续 3 次无进展停手，按 `r`/`c` 手动刷新复位。
   GUI revision 由 Blender 侧 depsgraph handler 提供，**鼠标直接改场景也能触发**（不用等后端命令）。
 - **帧龄**：元信息显示 `Scene · W × H · frame N · 3s ago`，一眼看出画面旧了多久。
+- **渲染 / 作业**：GUI 渲染中头部显示 `● RENDERING` 并暂停自动重拍/跟随；headless 作业在画面下方
+  显示 `JOBS` 行，点击行（或按 `J`）展开日志尾部。
 - **跟随模式**：点底部「▶ 跟随」或按 `f` 打开；每 2.5 s 抓一帧（1000 长边，只在 Blender 静默时抓），
   适合在 Blender 里直接拖物体时近似实时预览。默认关闭（1600 长边抓帧约 1 s，持续跟随会占主线程）。
 - **模型请用户点选**：`blender_rt_pick` 发请求后会**自动打开/聚焦**面板并显示横幅；
@@ -175,7 +177,7 @@ v2.2 给 `/host/*` 新增 `ui`/`watching` 附加字段，并让 `blender_rt_pick
 - **图片**：终端支持 Kitty/Sixel 时显示真实画面；不支持时回退成**自动对比度 ASCII 预览**
   （每 cell 一个字符，深灰视口背景也能看出轮廓），取帧/点选/模型看图仍然正常
   （模型侧始终拿到 PNG 附件）。
-- **暂不支持**：点击进消息（`sendToChat` 未授权）、`@` 提及、v2.1 的多选 UI/缩放平移/作业区。
+- **暂不支持**：点击进消息（`sendToChat` 未授权）、`@` 提及、v2.1 的多选 UI/缩放平移。
 - **开关**：插件行 `config.tuiPanel: false` 可关闭面板（默认 `true`，仅对有 `tuiPanels` 的宿主生效）。
 
 安装、快捷键、排障表与本机验收记录见 [docs/TUI-适配.md](docs/TUI-适配.md)。

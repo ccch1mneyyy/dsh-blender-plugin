@@ -80,6 +80,8 @@ blender_viewport(op="doctor")
 | `f` / 点「▶ 跟随」 | 跟随模式开关：每 2.5 s 抓一帧（1000 长边，仅 `blender_quiet` 时），默认关闭 |
 | 场景改后静默 | 面板可见且 `stale` + `blender_quiet` 时自动 `POST /host/view/capture`（1200 ms 节流；连续 3 次无进展停手，按 `r`/`c` 手动刷新复位） |
 | 鼠标改场景 | v2.3：`GET /host/scene-revision` 读到 revision 变化且 `idle_ms ≥ 800` 时也自动重拍（depsgraph handler，不依赖后端命令） |
+| 渲染中 | v2.3：头部状态 `● RENDERING`；自动重拍/跟随暂停，渲染结束（标记失效）后再抓 |
+| 作业区 | v2.3：`GET /host/jobs` 有 running 作业时，画面下方显示 `JOBS` 行；点击行（或按 `J`）展开最近 3 行日志，再点收起 |
 | `Esc` | 有 pending 点选请求时取消它（`POST /host/pick/cancel`）并阻止面板关闭；没有请求时不拦截，按宿主语义退出面板 |
 | 切走面板 | 停止轮询；切回来继续（面板不可见时不发请求） |
 
@@ -185,6 +187,8 @@ blender_viewport(op="doctor")
 | `r` / 「⟳ 刷新」 | 无 `c` 之外的操作，seq 立即 +1、画面刷新（真重拍，不只是重读 store） |
 | 场景改后自动重拍 | 改场景 → 等 Blender 静默 0.8 s → 面板从 `STALE` 回 `LIVE`，`frame N` 递增；连续 3 次无进展停手，按 `r`/`c` 复位 |
 | 跟随模式 | 按 `f`/点「▶ 跟随」→ 状态带 `· FOLLOW`；每 2.5 s 自动抓帧（1000 长边），`seq` 持续递增；Blender 忙时暂停；再按 `f` 关闭 |
+| 渲染状态 | 人工写 `renders/render_state.json` → 头部 `● RENDERING`、跟随暂停；删除后恢复 `LIVE`/`STALE` |
+| 作业区 | 起一个 headless 作业 → 面板出现 `JOBS` running 行；点击行显示日志尾部；作业结束后不再显示 running 行 |
 | 模型 `blender_rt_pick` | 面板自动打开并显示 `点选请求` 提示；点击画面后工具返回 `PICK ok`（点空处返回空处语义） |
 | `Esc` 取消 | 工具返回 `PICK 已取消`，面板 toast「已取消点选请求」 |
 | 无面板时 `blender_rt_pick` | 独立后端（无 watcher）**2.8 s** 返回 `PICK 未检测到可应答的视口面板`，请求已 cancel，不再等 120 s |
@@ -194,4 +198,4 @@ blender_viewport(op="doctor")
 | 无图形协议回退 | tmux 内显示自动对比度 ASCII 预览（物体轮廓可见），取帧/点选/模型看图均正常 |
 
 > 未覆盖：真实 Kitty/Sixel 终端里的像素级呈现（本机 tmux 无 passthrough）；多选 UI、缩放平移、
-> 作业区、`@` 提及。它们不是本次适配的承诺，见 §1 对照表。
+> `@` 提及。它们不是本次适配的承诺，见 §1 对照表。
