@@ -152,6 +152,7 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   the status goes `STALE` → `LIVE`. Recaptures are throttled to one per 1200 ms and stop after 3
   consecutive no-progress attempts (press `r`/`c` to reset). The GUI revision comes from a depsgraph
   handler inside Blender, so **mouse edits also trigger a recapture** without an agent command.
+- **Frame age**: the meta line shows `Scene · W × H · frame N · 3s ago`.
 - **Follow mode**: click "▶ Follow" or press `f`; it captures every 2.5 s (1000 px long edge, only
   while Blender is quiet), for a near-real-time preview while editing directly in Blender. Off by
   default (a 1600 px capture takes ~1 s and continuous following occupies the main thread).

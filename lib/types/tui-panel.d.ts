@@ -96,6 +96,8 @@ declare function followCaptureDue(s: any): boolean;
  * 连续拖动时 idle 很小 → 不拍；停手 ≥800 ms 才拍，避免拖一下出一张。
  */
 declare function revisionStaleDue(s: any): boolean;
+/** 帧龄的人类可读形式（0.8s / 12s / 2m 5s）。 */
+declare function formatAge(ms: number): string;
 /**
  * 创建视口面板组件。返回的组件吃 `TuiPanelProps`（dsh-TUI
  * `src/dsh-adapter/panels.ts`），用宿主 React 渲染。
@@ -133,6 +135,7 @@ export declare const __internals: {
     autoCaptureDecision: typeof autoCaptureDecision;
     followCaptureDue: typeof followCaptureDue;
     revisionStaleDue: typeof revisionStaleDue;
+    formatAge: typeof formatAge;
     tuiPanelState: typeof tuiPanelState;
 };
 export {};

@@ -499,6 +499,17 @@ function revisionStaleDue(s: any): boolean {
   return s.idleMs >= s.minIdleMs
 }
 
+/** 帧龄的人类可读形式（0.8s / 12s / 2m 5s）。 */
+function formatAge(ms: number): string {
+  const total = Math.max(0, Math.round(Number(ms) || 0))
+  if (total < 1000) return String(total) + 'ms'
+  const sec = Math.round(total / 1000)
+  if (sec < 60) return String(sec) + 's'
+  const min = Math.floor(sec / 60)
+  const rest = sec % 60
+  return String(min) + 'm' + (rest ? ' ' + String(rest) + 's' : '')
+}
+
 // ── 面板组件 ─────────────────────────────────────────────────────────────
 
 /**
@@ -517,7 +528,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const height = Math.max(1, Math.floor(Number(props.height)) || 1)
     const visible = props.visible !== false
 
-    const [latest, setLatest] = React.useState({ seq: 0, width: 0, height: 0, stale: false, blenderQuiet: false, sceneRevision: null, revisionStale: false, scene: '', file: '' })
+    const [latest, setLatest] = React.useState({ seq: 0, width: 0, height: 0, stale: false, blenderQuiet: false, capturedAt: 0, sceneRevision: null, revisionStale: false, scene: '', file: '' })
     const [ready, setReady] = React.useState(null)
     const [decoded, setDecoded] = React.useState(null)
     const [pick, setPick] = React.useState(null)
@@ -664,6 +675,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
             height: Math.max(0, Math.floor(Number(data.height) || 0)),
             stale: data.stale === true,
             blenderQuiet: data.blender_quiet === true,
+            capturedAt: Number.isFinite(Number(data.captured_at)) ? Number(data.captured_at) : 0,
             sceneRevision: Number.isFinite(Number(data.scene_revision)) ? Number(data.scene_revision) : null,
             revisionStale: data.revision_stale === true,
             scene: data.scene ? String(data.scene) : '',
@@ -755,6 +767,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
                 height: Math.max(0, Math.floor(Number(after.height) || 0)),
                 stale: after.stale === true,
                 blenderQuiet: after.blender_quiet === true,
+                capturedAt: Number.isFinite(Number(after.captured_at)) ? Number(after.captured_at) : 0,
                 sceneRevision: Number.isFinite(Number(after.scene_revision)) ? Number(after.scene_revision) : null,
                 revisionStale: after.revision_stale === true,
                 scene: after.scene ? String(after.scene) : '',
@@ -1020,8 +1033,10 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       ),
       React.createElement(ui.Text, { color: statusColor }, '● ' + status + (follow ? ' · FOLLOW' : '')),
     )
+    const ageMs = latest.capturedAt > 0 ? Math.max(0, Date.now() - latest.capturedAt * 1000) : null
+    const ageText = ageMs === null ? '' : '  ·  ' + formatAge(ageMs) + ' ago'
     const metaText = latest.seq > 0
-      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq)
+      ? sceneName + '  ·  ' + String(frameWidth) + ' × ' + String(frameHeight) + '  ·  frame ' + String(latest.seq) + ageText
       : 'no frame captured'
     const meta = React.createElement(
       ui.Box,
@@ -1240,5 +1255,6 @@ export const __internals = {
   autoCaptureDecision: autoCaptureDecision,
   followCaptureDue: followCaptureDue,
   revisionStaleDue: revisionStaleDue,
+  formatAge: formatAge,
   tuiPanelState: tuiPanelState,
 }

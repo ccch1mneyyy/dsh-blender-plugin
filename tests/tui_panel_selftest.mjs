@@ -10,7 +10,7 @@
  *   · downscaleRgba：最近邻缩放形状/像素。
  *   · autoCaptureDecision：stale + 静默才重拍；隐藏/点选/忙/节流/同 seq/停手全部跳过。
  *   · followCaptureDue：只有跟随开启、面板可见、静默、且到间隔才抓。
- *   · revisionStaleDue：GUI revision 停稳判定。
+ *   · revisionStaleDue / formatAge：GUI revision 停稳判定与帧龄文案。
  *   · registerTuiViewportPanel：descriptor 字段、disposer 经 ctx.effect 清理、
  *     无服务/register 抛错/ctx.effect 抛错都不抛。
  *
@@ -393,6 +393,7 @@ test('导出面：4 个函数 + __internals 指向同一实现', () => {
   assert.equal(typeof mod.__internals.autoCaptureDecision, 'function');
   assert.equal(typeof mod.__internals.followCaptureDue, 'function');
   assert.equal(typeof mod.__internals.revisionStaleDue, 'function');
+  assert.equal(typeof mod.__internals.formatAge, 'function');
   assert.equal(mod.__internals.tuiPanelState, mod.tuiPanelState);
 });
 
@@ -459,13 +460,21 @@ test('followCapture: 关闭 / 不可见 / 点选 / Blender 忙 都跳过', () =>
   assert.equal(due({ ...followBase(), seq: 0 }), false);
 });
 
-// ── GUI revision ───────────────────────────────────────────────────────────
+// ── GUI revision / 帧龄 ────────────────────────────────────────────────────
 test('revisionStaleDue: 编辑停稳 ≥800ms 才允许重拍', () => {
   const due = mod.__internals.revisionStaleDue;
   assert.equal(due({ revisionStale: true, idleMs: 900, minIdleMs: 800 }), true);
   assert.equal(due({ revisionStale: true, idleMs: 200, minIdleMs: 800 }), false);
   assert.equal(due({ revisionStale: false, idleMs: 900, minIdleMs: 800 }), false);
   assert.equal(due({ revisionStale: true, idleMs: null, minIdleMs: 800 }), false);
+});
+
+test('formatAge: ms / s / m 文案', () => {
+  const fmt = mod.__internals.formatAge;
+  assert.equal(fmt(0), '0ms');
+  assert.equal(fmt(850), '850ms');
+  assert.equal(fmt(1200), '1s');
+  assert.equal(fmt(65000), '1m 5s');
 });
 
 // ── registerTuiViewportPanel ─────────────────────────────────────────────

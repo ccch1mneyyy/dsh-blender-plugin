@@ -111,7 +111,7 @@ blender_viewport(op="doctor")
 
 - **品牌头**：`BLENDER  VIEWPORT`（accent 色 + subtle 色）+ 右侧状态点
   `● LIVE / STALE / OFFLINE / IDLE`（success / warning / error / subtle）。
-- **元信息**：`Scene · 宽 × 高 · frame N`，一行 subtle；无帧时 `no frame captured`。
+- **元信息**：`Scene · 宽 × 高 · frame N · 3s ago`，一行 subtle；无帧时 `no frame captured`。
 - **分隔线**：`ui.Divider` 的 hairline，上下各一条，给画框留出呼吸感。
 - **画框**：`ui.Box` 圆角细边框 + 水平内边距；画面顶部锚定，下方留白，不铺满整块面板。
 - **键位栏**：左侧是可点击的「⟳ 刷新」「▶/⏸ 跟随」按钮 + `esc 取消`，右侧 `click 选物`；多选请求额外显示 `d 完成`。
@@ -180,6 +180,7 @@ blender_viewport(op="doctor")
 | TUI 里 `blender_viewport(op=doctor)` | `kind=ok`，且 `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）` |
 | 面板打开 | 标签栏出现「Blender 视口」；品牌头 `BLENDER  VIEWPORT` + 状态点 `● LIVE/STALE/IDLE`，元信息 `Scene · W × H · frame N` |
 | `c` 捕获 | seq 递增、尺寸变 1600 长边、`fresh` |
+| 帧龄 | 元信息显示 `· 2s ago`，随时间增长；新帧后归零 |
 | 鼠标改场景自动重拍 | 在 Blender GUI 里拖动物体 → revision 递增 → 停手 0.8 s 后面板自动重拍（无 `c` 操作），状态回 `LIVE` |
 | `r` / 「⟳ 刷新」 | 无 `c` 之外的操作，seq 立即 +1、画面刷新（真重拍，不只是重读 store） |
 | 场景改后自动重拍 | 改场景 → 等 Blender 静默 0.8 s → 面板从 `STALE` 回 `LIVE`，`frame N` 递增；连续 3 次无进展停手，按 `r`/`c` 复位 |

@@ -166,6 +166,7 @@ v2.2 给 `/host/*` 新增 `ui`/`watching` 附加字段，并让 `blender_rt_pick
 - **自动刷新**：面板可见时，场景改过（`stale` 或 GUI revision 变化）且 Blender 静默 0.8 s 后自动重拍，
   状态从 `STALE` 回 `LIVE`；1200 ms 节流，连续 3 次无进展停手，按 `r`/`c` 手动刷新复位。
   GUI revision 由 Blender 侧 depsgraph handler 提供，**鼠标直接改场景也能触发**（不用等后端命令）。
+- **帧龄**：元信息显示 `Scene · W × H · frame N · 3s ago`，一眼看出画面旧了多久。
 - **跟随模式**：点底部「▶ 跟随」或按 `f` 打开；每 2.5 s 抓一帧（1000 长边，只在 Blender 静默时抓），
   适合在 Blender 里直接拖物体时近似实时预览。默认关闭（1600 长边抓帧约 1 s，持续跟随会占主线程）。
 - **模型请用户点选**：`blender_rt_pick` 发请求后会**自动打开/聚焦**面板并显示横幅；
