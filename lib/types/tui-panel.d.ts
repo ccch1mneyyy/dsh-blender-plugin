@@ -84,6 +84,13 @@ declare function autoCaptureDecision(s: any): {
     reason: string;
 };
 /**
+ * 跟随模式是否该抓下一帧：用户显式打开、面板可见、没有 pending 点选、
+ * Blender 静默、且距上次抓帧 ≥ FOLLOW_CAPTURE_INTERVAL_MS。
+ * 跟随模式不看 `stale` —— 鼠标在 Blender 里直接改场景不会产生后端命令，
+ * 只能按固定节律抓；`blender_quiet` 保证不打扰模型/别的会话的在飞命令。
+ */
+declare function followCaptureDue(s: any): boolean;
+/**
  * 创建视口面板组件。返回的组件吃 `TuiPanelProps`（dsh-TUI
  * `src/dsh-adapter/panels.ts`），用宿主 React 渲染。
  */
@@ -118,6 +125,7 @@ export declare const __internals: {
     rgbaToAscii: typeof rgbaToAscii;
     mapClickToNormalized: typeof mapClickToNormalized;
     autoCaptureDecision: typeof autoCaptureDecision;
+    followCaptureDue: typeof followCaptureDue;
     tuiPanelState: typeof tuiPanelState;
 };
 export {};

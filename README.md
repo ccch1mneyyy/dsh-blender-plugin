@@ -144,12 +144,16 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   The host assigns the actual id (e.g. `act1:viewport` when the bundle has no Component identity).
   `blender_viewport(op="doctor")` prints
   `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）`.
-- **Inside the panel**: `c` captures a frame (`max_size=1600`) · `r` refreshes · click the image to
-  pick an object · `Esc` cancels a pending pick request.
+- **Inside the panel**: `r` (or the clickable "⟳ Refresh" button) recaptures and refreshes a frame
+  (`max_size=1600`); `c` also captures; click the image to pick an object; `Esc` cancels a pending
+  pick request.
 - **Auto-refresh**: while the panel is visible, a stale frame is recaptured automatically once the
   scene has changed and Blender has been quiet for 0.8 s; the status goes `STALE` → `LIVE`.
   Recaptures are throttled to one per 1200 ms and stop after 3 consecutive no-progress attempts
-  (press `c` to reset).
+  (press `r`/`c` to reset).
+- **Follow mode**: click "▶ Follow" or press `f`; it captures every 2.5 s (1000 px long edge, only
+  while Blender is quiet), for a near-real-time preview while editing directly in Blender. Off by
+  default (a 1600 px capture takes ~1 s and continuous following occupies the main thread).
 - **Model-requested picking**: after `blender_rt_pick` creates a request, the panel is opened/focused
   automatically and shows a banner; the clicked object name goes straight back to the model. If no
   panel is polling (TUI < 0.16 / panel registration failed / `tuiPanel: false`), the tool returns

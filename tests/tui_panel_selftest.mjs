@@ -9,6 +9,7 @@
  *   · mapClickToNormalized：0..1 映射、边界夹取、图外 null。
  *   · downscaleRgba：最近邻缩放形状/像素。
  *   · autoCaptureDecision：stale + 静默才重拍；隐藏/点选/忙/节流/同 seq/停手全部跳过。
+ *   · followCaptureDue：只有跟随开启、面板可见、静默、且到间隔才抓。
  *   · registerTuiViewportPanel：descriptor 字段、disposer 经 ctx.effect 清理、
  *     无服务/register 抛错/ctx.effect 抛错都不抛。
  *
@@ -389,6 +390,7 @@ test('导出面：4 个函数 + __internals 指向同一实现', () => {
   assert.equal(mod.__internals.rgbaToAscii, mod.rgbaToAscii);
   assert.equal(typeof mod.__internals.mapClickToNormalized, 'function');
   assert.equal(typeof mod.__internals.autoCaptureDecision, 'function');
+  assert.equal(typeof mod.__internals.followCaptureDue, 'function');
   assert.equal(mod.__internals.tuiPanelState, mod.tuiPanelState);
 });
 
@@ -426,6 +428,33 @@ test('autoCapture: 节流 / 同 seq / 停手', () => {
   assert.deepEqual(decide({ ...autoBase(), lastAt: 9500 }), { action: 'skip', reason: 'throttled' });
   assert.deepEqual(decide({ ...autoBase(), lastSeq: 7 }), { action: 'noProgress', reason: 'same_seq' });
   assert.deepEqual(decide({ ...autoBase(), stuck: 3 }), { action: 'stop', reason: 'stuck' });
+});
+
+// ── 跟随模式决策 ───────────────────────────────────────────────────────────
+const followBase = () => ({
+  follow: true,
+  visible: true,
+  picking: false,
+  seq: 3,
+  blenderQuiet: true,
+  now: 10000,
+  lastAt: 0,
+  intervalMs: 2500,
+});
+
+test('followCapture: 开启 + 可见 + 静默 + 到间隔才抓', () => {
+  const due = mod.__internals.followCaptureDue;
+  assert.equal(due(followBase()), true);
+  assert.equal(due({ ...followBase(), now: 2000 }), false);
+});
+
+test('followCapture: 关闭 / 不可见 / 点选 / Blender 忙 都跳过', () => {
+  const due = mod.__internals.followCaptureDue;
+  assert.equal(due({ ...followBase(), follow: false }), false);
+  assert.equal(due({ ...followBase(), visible: false }), false);
+  assert.equal(due({ ...followBase(), picking: true }), false);
+  assert.equal(due({ ...followBase(), blenderQuiet: false }), false);
+  assert.equal(due({ ...followBase(), seq: 0 }), false);
 });
 
 // ── registerTuiViewportPanel ─────────────────────────────────────────────
