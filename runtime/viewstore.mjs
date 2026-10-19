@@ -115,6 +115,9 @@ export function createViewStore() {
   // 恰好在此窗口内完成"时**吞掉**它的标记（欠标 stale 是危险方向），逐调用点判定没有这个洞。
   let sceneVersion = 0;               // "会改场景"的命令完成一次 +1
   let capturedSceneVersion = 0;       // 最近一帧捕获**开始前**的 sceneVersion
+  // v2.3：GUI 编辑 revision（来自 Blender 侧 depsgraph handler 写的 JSON；null = 没有探针）
+  let sceneRevision = null;
+  let capturedSceneRevision = null;
 
   // ── §3 在飞计数（blender_quiet 的判据）──────────────────────────────────
   let inflight = 0;                   // addon 通道在飞命令数
@@ -134,6 +137,21 @@ export function createViewStore() {
   }
   /** §1.2 的 `stale`：该帧之后场景被改过。没捕获过任何一帧时恒为 false。 */
   function isStale() { return seq > 0 && sceneVersion > capturedSceneVersion; }
+
+  /** v2.3：GUI 编辑带来的陈旧（revision 变了、但还没有对应的新帧）。 */
+  function isRevisionStale() {
+    if (!(seq > 0) || sceneRevision === null) return false;
+    // 捕获发生在探针注入之前时 capturedSceneRevision 还是 null：只要之后出现过
+    // 编辑（revision > 0）就算陈旧；revision 仍为 0 时保持 false（没改过场景）。
+    if (capturedSceneRevision === null) return sceneRevision > 0;
+    return sceneRevision !== capturedSceneRevision;
+  }
+
+  /** v2.3：记录后端探到的 GUI revision（文件读出来的计数）。 */
+  function noteSceneRevision(value) {
+    const rev = Number(value);
+    if (Number.isFinite(rev)) sceneRevision = rev;
+  }
 
   /**
    * §3：登记一帧。`seq += 1`。
@@ -157,6 +175,8 @@ export function createViewStore() {
     height = Math.max(0, Math.round(Number(m.height) || 0));
     const csv = Number(m.captured_scene_version);
     capturedSceneVersion = Number.isFinite(csv) ? csv : sceneVersion;
+    // 这帧之后若 GUI 又改过，revision 会再次大于它；null（没有探针）保持 null。
+    capturedSceneRevision = sceneRevision;
     const vm = view && view.view_matrix, wm = view && view.window_matrix;
     if (vm && wm) {
       views.set(seq, { view_matrix: vm, window_matrix: wm, width: width, height: height, file: file, scene: scene });
@@ -179,6 +199,8 @@ export function createViewStore() {
       scene: nullIfEmpty(scene),
       scene_count: sceneCount,
       stale: isStale(),
+      scene_revision: sceneRevision,
+      revision_stale: isRevisionStale(),
       pickable: seq > 0 && views.has(seq),
       blender_quiet: isQuiet(),
       width: width,
@@ -239,6 +261,7 @@ export function createViewStore() {
   function snapshot() {
     return {
       seq: seq, source: source, scene_version: sceneVersion, captured_scene_version: capturedSceneVersion,
+      scene_revision: sceneRevision, captured_scene_revision: capturedSceneRevision,
       inflight: inflight, last_command_age_ms: lastCommandAt ? (Date.now() - lastCommandAt) : null,
       views_kept: views.size, views_keep_max: VIEWS_KEEP,
       png_bytes: png ? png.length : 0, file: nullIfEmpty(file), scene: nullIfEmpty(scene),
@@ -247,8 +270,8 @@ export function createViewStore() {
 
   return {
     // 状态机
-    beginCommand, endCommand, noteSceneChange,
-    isQuiet, isStale, put, latest, pngFor, viewFor, captureThrough, snapshot,
+    beginCommand, endCommand, noteSceneChange, noteSceneRevision,
+    isQuiet, isStale, isRevisionStale, put, latest, pngFor, viewFor, captureThrough, snapshot,
     // 只读取用（engine 在捕获前读 scene_version）
     get sceneVersion() { return sceneVersion; },
     get seq() { return seq; },

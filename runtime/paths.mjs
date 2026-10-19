@@ -38,6 +38,10 @@ export const GEO_PATH = path.join(HERE, 'geo.py');
 export const RUNNER_PATH = path.join(HERE, 'runner.py');
 export const PERF_PATH = path.join(HERE, 'perf.py');
 export const VIEW_PATH = path.join(HERE, 'view.py');
+/** v2.3：场景 revision 探针（depsgraph handler + 2 s 心跳，写共享 workDir 下 JSON）。 */
+export const SCENE_REVISION_PATH = path.join(HERE, 'scene_revision.py');
+export const SCENE_REVISION_JSON_WIN = PATHS.sceneRevisionWin;
+export const SCENE_REVISION_JSON_WSL = PATHS.sceneRevisionWsl;
 /** 契约层（S1+S2）：组件/连接注册、包络/干涉/接口校验、破坏性门控、证据账本、三态判定 */
 export const CONTRACT_PATH = path.join(HERE, 'contract.py');
 /** 规划器（S3）：对象图 → 诊断 → 编译到 bpy → 图导出 */

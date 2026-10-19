@@ -41,6 +41,8 @@ const FOLLOW_POLL_MS = 1000
 const FOLLOW_CAPTURE_INTERVAL_MS = 2500
 /** 跟随模式捕获分辨率：1000 长边约 0.5 s/帧；1600 要 ~1 s，跟随用小的。 */
 const FOLLOW_CAPTURE_MAX_SIZE = 1000
+/** GUI revision 编辑停下多久才允许自动重拍（与后端 blender_quiet 同口径 0.8 s）。 */
+const REVISION_IDLE_MS = 800
 /** 与宿主 Image 的单元格预算保持一致（TERMINAL_IMAGE_MAX_CELLS = 128×128），
  * 超过时宿主会自行缩小格子，点击坐标就不再对应我们的 layout。 */
 const MAX_IMAGE_COLUMNS = 128
@@ -486,6 +488,17 @@ function followCaptureDue(s: any): boolean {
   return true
 }
 
+/**
+ * v2.3：GUI revision 陈旧是否已经"停稳"到可以重拍。
+ * Blender 侧 depsgraph handler 每次更新 revision；后端返回 idle_ms（距上次编辑）。
+ * 连续拖动时 idle 很小 → 不拍；停手 ≥800 ms 才拍，避免拖一下出一张。
+ */
+function revisionStaleDue(s: any): boolean {
+  if (s.revisionStale !== true) return false
+  if (s.idleMs === null || s.idleMs === undefined) return false
+  return s.idleMs >= s.minIdleMs
+}
+
 // ── 面板组件 ─────────────────────────────────────────────────────────────
 
 /**
@@ -504,7 +517,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
     const height = Math.max(1, Math.floor(Number(props.height)) || 1)
     const visible = props.visible !== false
 
-    const [latest, setLatest] = React.useState({ seq: 0, width: 0, height: 0, stale: false, blenderQuiet: false, scene: '', file: '' })
+    const [latest, setLatest] = React.useState({ seq: 0, width: 0, height: 0, stale: false, blenderQuiet: false, sceneRevision: null, revisionStale: false, scene: '', file: '' })
     const [ready, setReady] = React.useState(null)
     const [decoded, setDecoded] = React.useState(null)
     const [pick, setPick] = React.useState(null)
@@ -625,6 +638,19 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
               : false,
           )
 
+          // v2.3：GUI 编辑 revision（后端读 Blender 侧 handler 写的 JSON；读不到就忽略，
+          // 面板仍保留原有的 command-stale 自动重拍）。先刷新 revision 再看 latest，
+          // 这样 latest.revision_stale 是本轮的新值。
+          const revisionRes = await fetchJson(port, '/host/scene-revision?client=tui')
+          if (!aliveRef.current) return
+          const revisionData = revisionRes && revisionRes.status === 200 ? revisionRes.data : null
+          const revisionOk = !!(revisionData && revisionData.ok === true)
+          const revisionIdleMs = revisionOk && Number.isFinite(Number(revisionData.idle_ms))
+            ? Number(revisionData.idle_ms)
+            : null
+          const revisionStale = !!(revisionOk && revisionData.revision_stale === true
+            && revisionStaleDue({ revisionStale: true, idleMs: revisionIdleMs, minIdleMs: REVISION_IDLE_MS }))
+
           const latestRes = await fetchJson(port, '/host/view/latest?client=tui')
           if (!aliveRef.current) return
           const data = latestRes ? latestRes.data : null
@@ -638,12 +664,15 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
             height: Math.max(0, Math.floor(Number(data.height) || 0)),
             stale: data.stale === true,
             blenderQuiet: data.blender_quiet === true,
+            sceneRevision: Number.isFinite(Number(data.scene_revision)) ? Number(data.scene_revision) : null,
+            revisionStale: data.revision_stale === true,
             scene: data.scene ? String(data.scene) : '',
             file: data.file ? String(data.file) : '',
           }
           latestRef.current = nextLatest
           setLatest(nextLatest)
-          setPollMs(followRef.current ? FOLLOW_POLL_MS : nextLatest.stale ? POLL_STALE_MS : POLL_MS)
+          const autoStale = nextLatest.stale || revisionStale
+          setPollMs(followRef.current ? FOLLOW_POLL_MS : autoStale ? POLL_STALE_MS : POLL_MS)
           setNotice(previous => (previous && previous.kind === 'error' ? null : previous))
 
           // 挂载后第一次拿到 latest 且还没有任何帧 ⇒ 自动捕获一次（只一次，
@@ -689,7 +718,7 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
           } else if (!auto.stopped) {
             const decision = autoCaptureDecision({
               seq: nextLatest.seq,
-              stale: nextLatest.stale,
+              stale: autoStale,
               blenderQuiet: nextLatest.blenderQuiet,
               visible: visible,
               picking: picking,
@@ -726,6 +755,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
                 height: Math.max(0, Math.floor(Number(after.height) || 0)),
                 stale: after.stale === true,
                 blenderQuiet: after.blender_quiet === true,
+                sceneRevision: Number.isFinite(Number(after.scene_revision)) ? Number(after.scene_revision) : null,
+                revisionStale: after.revision_stale === true,
                 scene: after.scene ? String(after.scene) : '',
                 file: after.file ? String(after.file) : '',
               }
@@ -854,7 +885,8 @@ export function createTuiViewportPanel(opts: { port: number }): (props: any) => 
       ? latest.height
       : decoded && decoded.image ? decoded.image.height : 0
     const sceneName = latest.scene || shortName(latest.file) || 'untitled'
-    const status = ready === false ? 'OFFLINE' : latest.stale ? 'STALE' : latest.seq > 0 ? 'LIVE' : 'IDLE'
+    const frameStale = latest.stale || latest.revisionStale
+    const status = ready === false ? 'OFFLINE' : frameStale ? 'STALE' : latest.seq > 0 ? 'LIVE' : 'IDLE'
     const statusColor = status === 'OFFLINE' ? 'error' : status === 'STALE' ? 'warning' : status === 'LIVE' ? 'success' : 'subtle'
     const bannerRows = pick ? 2 : notice ? 1 : 0
     // 头部 2 + 两条分隔线 2 + 键位 1 + 画框上下边框 2 + 通知行。
@@ -1207,5 +1239,6 @@ export const __internals = {
   mapClickToNormalized: mapClickToNormalized,
   autoCaptureDecision: autoCaptureDecision,
   followCaptureDue: followCaptureDue,
+  revisionStaleDue: revisionStaleDue,
   tuiPanelState: tuiPanelState,
 }

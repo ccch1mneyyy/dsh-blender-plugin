@@ -79,6 +79,7 @@ blender_viewport(op="doctor")
 | `r` / 点「⟳ 刷新」 | 立即重拍一帧并刷新（`POST /host/view/capture` → 重读 `/host/view/latest`），不是只重读 store |
 | `f` / 点「▶ 跟随」 | 跟随模式开关：每 2.5 s 抓一帧（1000 长边，仅 `blender_quiet` 时），默认关闭 |
 | 场景改后静默 | 面板可见且 `stale` + `blender_quiet` 时自动 `POST /host/view/capture`（1200 ms 节流；连续 3 次无进展停手，按 `r`/`c` 手动刷新复位） |
+| 鼠标改场景 | v2.3：`GET /host/scene-revision` 读到 revision 变化且 `idle_ms ≥ 800` 时也自动重拍（depsgraph handler，不依赖后端命令） |
 | `Esc` | 有 pending 点选请求时取消它（`POST /host/pick/cancel`）并阻止面板关闭；没有请求时不拦截，按宿主语义退出面板 |
 | 切走面板 | 停止轮询；切回来继续（面板不可见时不发请求） |
 
@@ -179,6 +180,7 @@ blender_viewport(op="doctor")
 | TUI 里 `blender_viewport(op=doctor)` | `kind=ok`，且 `宿主面板：✅ dsh-TUI 侧栏已注册（act1:viewport）` |
 | 面板打开 | 标签栏出现「Blender 视口」；品牌头 `BLENDER  VIEWPORT` + 状态点 `● LIVE/STALE/IDLE`，元信息 `Scene · W × H · frame N` |
 | `c` 捕获 | seq 递增、尺寸变 1600 长边、`fresh` |
+| 鼠标改场景自动重拍 | 在 Blender GUI 里拖动物体 → revision 递增 → 停手 0.8 s 后面板自动重拍（无 `c` 操作），状态回 `LIVE` |
 | `r` / 「⟳ 刷新」 | 无 `c` 之外的操作，seq 立即 +1、画面刷新（真重拍，不只是重读 store） |
 | 场景改后自动重拍 | 改场景 → 等 Blender 静默 0.8 s → 面板从 `STALE` 回 `LIVE`，`frame N` 递增；连续 3 次无进展停手，按 `r`/`c` 复位 |
 | 跟随模式 | 按 `f`/点「▶ 跟随」→ 状态带 `· FOLLOW`；每 2.5 s 自动抓帧（1000 长边），`seq` 持续递增；Blender 忙时暂停；再按 `f` 关闭 |
@@ -186,7 +188,7 @@ blender_viewport(op="doctor")
 | `Esc` 取消 | 工具返回 `PICK 已取消`，面板 toast「已取消点选请求」 |
 | 无面板时 `blender_rt_pick` | 独立后端（无 watcher）**2.8 s** 返回 `PICK 未检测到可应答的视口面板`，请求已 cancel，不再等 120 s |
 | 有 watcher 时 `blender_rt_pick` | 模拟 watcher（1 s 一次 `/host/view/latest`，非真实面板）下，`timeout_s=5` 仍等满 **5.2 s** 返回原超时语义（不误杀） |
-| 聚焦自检 | `tests/tui_panel_selftest.mjs` **21/21** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
+| 聚焦自检 | `tests/tui_panel_selftest.mjs` **23/23** · `tests/scene_revision_selftest.mjs` **5/5** · `tests/pick_presence_selftest.mjs` **5/5** · `tests/host_cors_selftest.mjs` **48/48** · `tests/dsh_api_compat_probe.mjs` **PASS**（16 工具） |
 | `npm test` | exit 0（discoverability 51/51 + 上述聚焦自检） |
 | 无图形协议回退 | tmux 内显示自动对比度 ASCII 预览（物体轮廓可见），取帧/点选/模型看图均正常 |
 

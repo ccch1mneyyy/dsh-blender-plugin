@@ -148,9 +148,10 @@ via `/host/ready`, so a collapsed sidebar keeps the old wait.
   (`max_size=1600`); `c` also captures; click the image to pick an object; `Esc` cancels a pending
   pick request.
 - **Auto-refresh**: while the panel is visible, a stale frame is recaptured automatically once the
-  scene has changed and Blender has been quiet for 0.8 s; the status goes `STALE` → `LIVE`.
-  Recaptures are throttled to one per 1200 ms and stop after 3 consecutive no-progress attempts
-  (press `r`/`c` to reset).
+  scene has changed (backend `stale` or a GUI revision bump) and Blender has been quiet for 0.8 s;
+  the status goes `STALE` → `LIVE`. Recaptures are throttled to one per 1200 ms and stop after 3
+  consecutive no-progress attempts (press `r`/`c` to reset). The GUI revision comes from a depsgraph
+  handler inside Blender, so **mouse edits also trigger a recapture** without an agent command.
 - **Follow mode**: click "▶ Follow" or press `f`; it captures every 2.5 s (1000 px long edge, only
   while Blender is quiet), for a near-real-time preview while editing directly in Blender. Off by
   default (a 1600 px capture takes ~1 s and continuous following occupies the main thread).

@@ -366,6 +366,9 @@ export const PATHS = {
   livePngWsl: path.join(CFG.workDirWsl, 'dsh_live_viewport.png'),
   viewPngWin: blenderSidePath(CFG.workDirWin, 'dsh_view_capture.png'),
   viewPngWsl: path.join(CFG.workDirWsl, 'dsh_view_capture.png'),
+  // v2.3：Blender 侧 depsgraph handler 写场景 revision/心跳，宿主侧只读文件。
+  sceneRevisionWin: blenderSidePath(CFG.workDirWin, 'scene_revision.json'),
+  sceneRevisionWsl: path.join(CFG.workDirWsl, 'scene_revision.json'),
 };
 
 /** 配置摘要（自检/排错时打印；blender_rt_headless 缺 exe 时也用它给提示）

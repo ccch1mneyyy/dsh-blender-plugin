@@ -91,6 +91,12 @@ declare function autoCaptureDecision(s: any): {
  */
 declare function followCaptureDue(s: any): boolean;
 /**
+ * v2.3：GUI revision 陈旧是否已经"停稳"到可以重拍。
+ * Blender 侧 depsgraph handler 每次更新 revision；后端返回 idle_ms（距上次编辑）。
+ * 连续拖动时 idle 很小 → 不拍；停手 ≥800 ms 才拍，避免拖一下出一张。
+ */
+declare function revisionStaleDue(s: any): boolean;
+/**
  * 创建视口面板组件。返回的组件吃 `TuiPanelProps`（dsh-TUI
  * `src/dsh-adapter/panels.ts`），用宿主 React 渲染。
  */
@@ -126,6 +132,7 @@ export declare const __internals: {
     mapClickToNormalized: typeof mapClickToNormalized;
     autoCaptureDecision: typeof autoCaptureDecision;
     followCaptureDue: typeof followCaptureDue;
+    revisionStaleDue: typeof revisionStaleDue;
     tuiPanelState: typeof tuiPanelState;
 };
 export {};

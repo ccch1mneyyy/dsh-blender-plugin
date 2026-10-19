@@ -140,7 +140,7 @@ export const KERNEL_BOOTSTRAP = [
  */
 // S3：目录（数据 + 目录逻辑）外移到 catalog.mjs；此处导入并**重导出公开面**，对外面逐字节不变
 // S3-b：路径与常量外移到 paths.mjs；具名导入 + 重导出，对外面不变
-import { ADDRESS, WIN_TMP, WSL_TMP, LIVE_PNG_WIN, LIVE_PNG_WSL, KIT_PATH, RUNNER_PATH, PERF_PATH, VIEW_PATH, CONTRACT_PATH, PLANNER_PATH, WORKER_PATH, TXN_PATH, QC_PATH, QC_RENDER_PATH, PRESET_PATH, AUDIT_PATH, MONTAGE_PATH, MOTION_PATH, DELIVER_PATH, GENERATOR_PATH, SCULPT_PATH, FIX_PATH, UV_PATH, PRINT_PATH, SWEEP_PATH, MATERIAL_PATH, RENDER_GUARD_PATH, GATE_PATH, IMG_PATH, CALIB_PATH, FACE_PATH, HUMAN_PATH, CLEARANCE_PATH, VEHICLE_PATH, SHAPE_PATH, USER_CONFIG_WIN, USER_SCRIPTS_WIN, GPU_PRELUDE, VIEW_PNG_WIN, VIEW_PNG_WSL, BLENDER_EXE, PATH_HELPERS, ACT_WRAPPER, KIT_SRC, KIT_HASH, GEO_SRC, blenderJoin, PIPELINE_PATH } from './paths.mjs';
+import { ADDRESS, WIN_TMP, WSL_TMP, LIVE_PNG_WIN, LIVE_PNG_WSL, KIT_PATH, RUNNER_PATH, PERF_PATH, VIEW_PATH, SCENE_REVISION_PATH, CONTRACT_PATH, PLANNER_PATH, WORKER_PATH, TXN_PATH, QC_PATH, QC_RENDER_PATH, PRESET_PATH, AUDIT_PATH, MONTAGE_PATH, MOTION_PATH, DELIVER_PATH, GENERATOR_PATH, SCULPT_PATH, FIX_PATH, UV_PATH, PRINT_PATH, SWEEP_PATH, MATERIAL_PATH, RENDER_GUARD_PATH, GATE_PATH, IMG_PATH, CALIB_PATH, FACE_PATH, HUMAN_PATH, CLEARANCE_PATH, VEHICLE_PATH, SHAPE_PATH, USER_CONFIG_WIN, USER_SCRIPTS_WIN, GPU_PRELUDE, VIEW_PNG_WIN, VIEW_PNG_WSL, SCENE_REVISION_JSON_WIN, SCENE_REVISION_JSON_WSL, BLENDER_EXE, PATH_HELPERS, ACT_WRAPPER, KIT_SRC, KIT_HASH, GEO_SRC, blenderJoin, PIPELINE_PATH } from './paths.mjs';
 // S8：无头脚本暂存移到 staging.mjs；具名导入 + 重导出，导出面不变
 import { writeHeadlessScript } from './staging.mjs';
 // workdirStagingWarning 也在这个模块里（搬移时一并带过去了）；readJsonSafe 仍是 engine 本地（不进导出面）
@@ -829,7 +829,7 @@ export function createEngine(opts = {}) {
     };
   }
   /** 把 Blender 侧 python 模块注入运行中的 Blender（模块自己把 API 挂到 K 上） */
-  const MODULE_ATTR = { RUNNER_READY: 'dsh_loop_api', PERF_READY: 'dsh_perf_api', VIEW_READY: 'dsh_view_api',
+  const MODULE_ATTR = { RUNNER_READY: 'dsh_loop_api', PERF_READY: 'dsh_perf_api', VIEW_READY: 'dsh_view_api', REVISION_READY: 'dsh_scene_revision_api',
                         CONTRACT_READY: 'dsh_contract_api', PLAN_READY: 'dsh_plan_api',
                         TXN_READY: 'dsh_txn_api', QC_READY: 'dsh_qc_api', GEO_READY: 'dsh_geo_api',
                         QC_RENDER_READY: 'dsh_qc_render_api',
@@ -914,6 +914,62 @@ export function createEngine(opts = {}) {
   const ensureRunner = () => injectModule(RUNNER_PATH, 'RUNNER_READY', 'RUNNER_VERSION');
   const ensurePerf = () => injectModule(PERF_PATH, 'PERF_READY', 'PERF_VERSION');
   const ensureView = () => injectModule(VIEW_PATH, 'VIEW_READY', 'VIEW_VERSION');
+  // v2.3：GUI 编辑探针（scene_revision.py）——注入一次后由 Blender 侧 depsgraph
+  // handler 写共享 workDir 的 JSON；后端读文件，零 Blender 往返。
+  const ensureSceneRevision = () => injectModule(
+    SCENE_REVISION_PATH, 'REVISION_READY', 'SCENE_REVISION_VERSION',
+    'K.dsh_scene_revision_path = ' + JSON.stringify(SCENE_REVISION_JSON_WIN),
+  );
+
+  // ── v2.3 场景 revision 探针 ──────────────────────────────────────────────
+  // 文件由 Blender 侧 depsgraph handler 写（runtime/scene_revision.py）；这里只
+  // 读文件，**零 addon 往返**。心跳 2 s 一次；心跳过期 = Blender 重启/模块没注入
+  // → 重新注入（注入失败有 5 s 冷却，避免渲染中每轮都打主线程）。
+  const SCENE_REV_STALE_MS = 6000;
+  let sceneRevisionReady = false;
+  let sceneRevisionFailAt = 0;
+  function readSceneRevisionFile() {
+    try {
+      const raw = fs.readFileSync(SCENE_REVISION_JSON_WSL, 'utf8');
+      const data = JSON.parse(raw);
+      return (data && typeof data === 'object') ? data : null;
+    } catch (e) { return null; }
+  }
+  async function sceneRevisionStatus() {
+    const now = Date.now();
+    let file = readSceneRevisionFile();
+    let fresh = !!(file && Number.isFinite(Number(file.heartbeat_at))
+      && (now - Number(file.heartbeat_at) * 1000) <= SCENE_REV_STALE_MS);
+    if (!sceneRevisionReady || !fresh) {
+      if (now - sceneRevisionFailAt < 5000) {
+        return { ok: false, error: 'revision_unavailable', retry_in_ms: 5000 - (now - sceneRevisionFailAt) };
+      }
+      try {
+        await ensureSceneRevision();
+        sceneRevisionReady = true;
+      } catch (e) {
+        sceneRevisionReady = false;
+        sceneRevisionFailAt = now;
+        return { ok: false, error: 'revision_inject_failed', detail: String((e && e.message) || e).slice(0, 200) };
+      }
+      file = readSceneRevisionFile();
+      fresh = !!(file && Number.isFinite(Number(file.heartbeat_at))
+        && (now - Number(file.heartbeat_at) * 1000) <= SCENE_REV_STALE_MS);
+      if (!file) return { ok: false, error: 'revision_file_missing' };
+    }
+    const revision = Number(file.revision);
+    const lastEdit = Number(file.last_edit_at);
+    return {
+      ok: Number.isFinite(revision),
+      revision: Number.isFinite(revision) ? revision : null,
+      last_edit_at: Number.isFinite(lastEdit) && lastEdit > 0 ? lastEdit : null,
+      idle_ms: Number.isFinite(lastEdit) && lastEdit > 0 ? Math.max(0, now - lastEdit * 1000) : null,
+      heartbeat_at: Number.isFinite(Number(file.heartbeat_at)) ? Number(file.heartbeat_at) : null,
+      pid: Number.isFinite(Number(file.pid)) ? Number(file.pid) : null,
+      version: Number.isFinite(Number(file.version)) ? Number(file.version) : null,
+      fresh: fresh,
+    };
+  }
   const ensureContract = () => injectModule(CONTRACT_PATH, 'CONTRACT_READY', 'CONTRACT_VERSION');
   const ensurePlanner = () => injectModule(PLANNER_PATH, 'PLAN_READY', 'PLAN_VERSION');
   const ensureTxn = () => injectModule(TXN_PATH, 'TXN_READY', 'TXN_VERSION');
@@ -2472,6 +2528,8 @@ export function createEngine(opts = {}) {
       if (!info || info.ok === false) throw new Error('scene-items 失败: ' + JSON.stringify(info).slice(0, 300));
       return info;
     },
+    /** 宿主集成（v2.3）：GUI 编辑 revision（读共享 workDir 的 JSON；零 Blender 往返）。 */
+    async sceneRevision() { return sceneRevisionStatus(); },
     /**
      * 无头 Blender：独立进程跑脚本（重渲染 / 批量几何 / 校验都走它）。
      * 语义要点（按外部反馈加固）：
